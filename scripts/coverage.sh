@@ -10,10 +10,14 @@ OUT_DIR="build/coverage"
 HTML_DIR="$OUT_DIR/html"
 LCOV_FILE="$OUT_DIR/lcov.info"
 
+rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
+echo "llvm-cov: ${LLVM_COV:-llvm-cov}"
+echo "llvm-profdata: ${LLVM_PROFDATA:-llvm-profdata}"
+
 cargo llvm-cov clean --workspace
-cargo llvm-cov --all-features --html --output-dir "$HTML_DIR"
+cargo llvm-cov --all-features --html --output-dir "$OUT_DIR"
 cargo llvm-cov --all-features --lcov --output-path "$LCOV_FILE"
 
 echo "Coverage HTML: $HTML_DIR/index.html"

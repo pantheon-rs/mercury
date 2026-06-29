@@ -4,6 +4,12 @@
 }:
 
 let
+  llvmTools = pkgs.llvmPackages.llvm;
+  llvmCoverageEnv = ''
+    export LLVM_COV=${llvmTools}/bin/llvm-cov
+    export LLVM_PROFDATA=${llvmTools}/bin/llvm-profdata
+  '';
+
   rustTools = with pkgs; [
     cargo
     rustc
@@ -14,6 +20,7 @@ let
     cargo-llvm-cov
     cargo-deny
     cargo-semver-checks
+    llvmTools
   ];
 
   commonTools = with pkgs; [
@@ -30,6 +37,7 @@ in
 
     shellHook = ''
       export RUST_BACKTRACE=1
+      ${llvmCoverageEnv}
       echo "Mercury development shell"
     '';
   };
@@ -39,8 +47,11 @@ in
       cargo
       rustc
       git
+      llvmTools
       formatter.config.build.wrapper
     ];
+
+    shellHook = llvmCoverageEnv;
   };
 
   perf = pkgs.mkShell {
@@ -58,6 +69,7 @@ in
 
     shellHook = ''
       export RUST_BACKTRACE=1
+      ${llvmCoverageEnv}
       echo "Mercury performance shell"
     '';
   };

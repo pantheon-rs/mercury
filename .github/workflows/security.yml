@@ -12,6 +12,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v17
-      - uses: DeterminateSystems/magic-nix-cache-action@v9
       - name: Dependency and license audit
         run: ./scripts/audit.sh
