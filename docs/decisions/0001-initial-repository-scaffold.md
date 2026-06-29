@@ -1,0 +1,33 @@
+# 0001: Initial Repository Scaffold
+
+Status: accepted  
+Date: 2026-06-29
+
+## Decision
+
+Start Mercury as a single normal Cargo library crate wrapped in a reproducible
+Nix workflow.
+
+Do not start as a Cargo workspace. Do not add AD, linalg, symbolic, or native
+dependencies until the first trait and API boundaries are clearer.
+
+## Rationale
+
+The repository standard in `pantheon` says to keep the crate boring first:
+
+- one library crate
+- committed `Cargo.lock`
+- committed `flake.lock`
+- Nix dev shells and checks
+- common scripts
+- CI templates
+
+Mercury will become a deep math crate, but over-designing before the first
+contracts are tested would make the foundational layer harder to reason about.
+
+## Consequences
+
+- Early code is minimal.
+- Tooling can be verified before math architecture expands.
+- Future AD/linalg/symbolic dependencies must enter through Mercury-owned
+  abstractions.

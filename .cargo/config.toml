@@ -1,0 +1,4 @@
+[alias]
+ci-check = "check --all-targets --all-features"
+ci-clippy = "clippy --all-targets --all-features -- -D warnings"
+ci-doc = "doc --no-deps --all-features"

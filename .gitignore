@@ -1,0 +1,9 @@
+/target/
+/build/
+/logs/
+/.direnv/
+/.envrc
+*.profraw
+*.profdata
+flamegraph.svg
+perf.data*
