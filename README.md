@@ -1,21 +1,24 @@
 # Mercury
 
-`mercury` is the generic differentiable math substrate for `pantheon-rs`.
+`mercury` is the differentiable math substrate for `pantheon-rs`.
 
-It owns the core math contract that higher layers build on:
+The Phase 1 direction is a small, plain-`f64` core differentiated by Rust
+nightly `std::autodiff` / Enzyme. This is the Metis idea reduced to the part
+that matters first: model code is written once as ordinary numeric Rust, and
+Mercury owns the derivative entry points and validation surface.
 
-- numeric execution
-- automatic differentiation execution
-- symbolic tracing
-- linear algebra facade
-- sparsity and graph coloring
-- derivative evaluators
-- optimization-facing derivative contracts
+Phase 1 owns:
 
-The first implementation is intentionally small. The crate starts as a normal
-Cargo library wrapped in a reproducible Nix workflow. AD, linalg, symbolic IR,
-and optimization backends should be introduced behind Mercury-owned traits and
-types rather than leaking backend crates directly through the architecture.
+- plain `f64` model-kernel conventions
+- Enzyme-backed dense derivative evaluators
+- finite-difference and analytic derivative checks
+- a conservative AD-safe kernel subset
+- room for sparse derivative callbacks later
+
+It does not start with a generic scalar trait, a symbolic graph engine, a solver
+stack, or a full linear algebra facade. Sparsity, graph coloring, and
+optimization-facing callbacks are designed when real problem scale demands
+them, without changing ordinary model code into a symbolic DSL.
 
 ## Development
 
@@ -29,4 +32,6 @@ nix develop
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Phase 1 Enzyme-backed `f64` decision](docs/decisions/0002-phase-1-enzyme-f64-core.md)
+- [Phase 1 gradient validation implementation plan](docs/implementation-plans/phase-1-gradient-validation.md)
 - [Decisions](docs/decisions/)

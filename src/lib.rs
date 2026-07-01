@@ -1,20 +1,14 @@
-//! Generic differentiable math substrate for `pantheon-rs`.
+//! Differentiable math substrate for `pantheon-rs`.
 //!
-//! Mercury owns the core math contracts that higher layers build on: numeric
-//! execution, automatic differentiation execution, symbolic tracing, linear
-//! algebra facades, sparsity, derivative evaluators, and optimization-facing
-//! derivative interfaces.
-//!
-//! The first implementation is intentionally small. Backends should be
-//! introduced behind Mercury-owned traits and types rather than leaking backend
-//! crates directly through the architecture.
+//! Mercury Phase 1 is a plain-`f64` core differentiated with Rust nightly
+//! `std::autodiff` / Enzyme. The current crate is still a small scaffold; these
+//! helpers are not the final automatic differentiation contract.
 #![forbid(unsafe_code)]
 
-/// Scalar behavior required by Mercury's first-pass math surface.
+/// Temporary scalar behavior from Mercury's initial scaffold.
 ///
-/// This trait is deliberately small. It lets the crate establish a stable
-/// Pantheon-owned scalar entry point before committing to specific AD, symbolic,
-/// or linear algebra backends.
+/// Phase 1 should not expand this into a generic AD or symbolic model contract.
+/// The planned core model path is ordinary `f64` code differentiated by Enzyme.
 pub trait Scalar:
     Copy
     + PartialOrd
@@ -89,10 +83,10 @@ impl Scalar for f64 {
     }
 }
 
-/// Value-selection primitive that keeps branch intent explicit.
+/// Value-selection primitive retained from the initial scaffold.
 ///
-/// Symbolic backends will eventually implement this as an expression node. For
-/// numeric scalars, it is just a normal boolean selection.
+/// Phase 1 model code may use ordinary Rust control flow. This helper remains
+/// useful when piecewise behavior should be visually explicit.
 pub fn where_<T>(condition: bool, then_value: T, else_value: T) -> T {
     if condition { then_value } else { else_value }
 }

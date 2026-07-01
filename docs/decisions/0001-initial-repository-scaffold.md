@@ -3,6 +3,9 @@
 Status: accepted  
 Date: 2026-06-29
 
+> Phase 1 autodiff direction is set by
+> [0002: Phase 1 Enzyme-Backed `f64` Core](./0002-phase-1-enzyme-f64-core.md).
+
 ## Decision
 
 Start Mercury as a single normal Cargo library crate wrapped in a reproducible
