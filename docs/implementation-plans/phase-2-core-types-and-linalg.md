@@ -16,7 +16,13 @@
 - All types f64-only. POD-transparency law (decision 0003): plain contiguous `f64` storage, no hidden allocation on differentiated paths, no `dyn`, no generic scalar.
 - Tests ALWAYS run `--release` (Enzyme requires fat LTO; debug is unsupported). `./scripts/test.sh` handles this and auto-enters the Nix shell.
 - Three-legged test law: every primitive ships (1) an Enzyme compile+gradient test, (2) a finite-difference cross-check via `mercury::validation`, (3) an analytic check where closed form exists.
-- Enzyme IR discipline in anything kernel-reachable: construct arrays with `core::array::from_fn` / element-wise stores. No `[0.0; N]` zero-init, no bulk copies/`mem::swap` of arrays (memset/memcpy kill Enzyme type analysis — see `metis-ad-spike/linalg_compat/RESULTS.md`).
+- Enzyme IR discipline in anything kernel-reachable (empirically pinned by bisection during Task 1 — violating any of these produces `Enzyme: Cannot deduce type of copy/memset` at compile time):
+  1. NO `std::array::from_fn` (its MaybeUninit machinery emits an untyped memcpy).
+  2. NO `[0.0; N]` zero-init on kernel paths (memset). Splat-seeding with a runtime value (`[f(0); N]`) is fine.
+  3. NO iterator adapters (`iter_mut().enumerate()`, `zip`, `skip`) in kernel-reachable loops — plain `for i in 0..N` indexed loops only, with `#[allow(clippy::needless_range_loop)]` where clippy objects.
+  4. Aggregates must be constructed in ONE expression and then mutated THROUGH the struct binding (`let mut v = Self { data: [seed; N] }; v.data[i] = ...; v`). Binding a bare array, mutating it, then wrapping (`Self { data }`) leaves an aggregate-rvalue memcpy Enzyme rejects. Literal construction (`Self::new([a, b, c])`) is always safe.
+  5. `-Zautodiff=Enable,LooseTypes` is BANNED: it compiles these patterns but produces silently wrong gradients (verified).
+  If a new pattern fails, bisect with a minimal kernel before redesigning — see `src/core/svector.rs::from_fn` comment for the canonical safe shape.
 - Commit after every task. No pre-commit hooks are installed; still verify `git status` scope before committing.
 - Gradient tolerances: Enzyme vs analytic `max_abs_error < 1e-9`; Enzyme vs finite differences `max_abs_error < 1e-4` (matches Phase 1 conventions in `tests/objective.rs`).
 
@@ -458,11 +464,26 @@ impl<const R: usize, const C: usize> SMatrix<R, C> {
         Self { data }
     }
 
-    /// Builds each element from `(row, col)` (element-wise stores;
-    /// kernel-safe).
+    /// Builds each element from `(row, col)` (kernel-safe; see the Enzyme
+    /// IR discipline in the plan's Global Constraints).
     #[must_use]
+    #[allow(clippy::needless_range_loop)]
     pub fn from_fn(mut f: impl FnMut(usize, usize) -> f64) -> Self {
-        Self { data: std::array::from_fn(|i| std::array::from_fn(|j| f(i, j))) }
+        // Construct-then-mutate pattern (Global Constraints rule 4).
+        // f is called exactly once per element, in row-major order.
+        if R == 0 || C == 0 {
+            return Self { data: [[0.0; C]; R] };
+        }
+        let mut m = Self { data: [[f(0, 0); C]; R] };
+        for j in 1..C {
+            m.data[0][j] = f(0, j);
+        }
+        for i in 1..R {
+            for j in 0..C {
+                m.data[i][j] = f(i, j);
+            }
+        }
+        m
     }
 
     /// All-zeros matrix. Host-side only: zero-init lowers to memset.
@@ -549,6 +570,12 @@ impl<const R: usize, const C: usize> Mul<SVector<C>> for SMatrix<R, C> {
 
 In `src/core/mod.rs` add `mod smatrix;` and `pub use smatrix::SMatrix;`.
 In `src/lib.rs` change the re-export to `pub use crate::core::{SMatrix, SVector};`.
+
+Untested-pattern warning: the nested splat seed `[[f(0, 0); C]; R]` copies the
+inner row array R times — this shape has NOT been Enzyme-verified. If the
+Enzyme test fails with "Cannot deduce type", bisect with a minimal kernel
+(one `#[autodiff_reverse]` fn in a scratch test file) before changing the
+API: try seeding row-by-row through the binding, and report what you find.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1297,16 +1324,17 @@ pub fn solve_fixed<const N: usize>(
     a: &SMatrix<N, N>,
     b: &SVector<N>,
 ) -> Result<SVector<N>, LinalgError> {
-    // Working copies, built element-wise (no memcpy on the AD path).
-    let mut m: [[f64; N]; N] = std::array::from_fn(|i| std::array::from_fn(|j| a[(i, j)]));
-    let mut y: [f64; N] = std::array::from_fn(|i| b[i]);
+    // Working copies in the Enzyme-safe shape (Global Constraints rules
+    // 1-4): from_fn is kernel-safe, mutation goes through Index/IndexMut.
+    let mut m = SMatrix::<N, N>::from_fn(|i, j| a[(i, j)]);
+    let mut y = SVector::<N>::from_fn(|i| b[i]);
 
     for k in 0..N {
         // Partial pivot: largest magnitude in column k at or below row k.
         let mut pivot_row = k;
-        let mut pivot_mag = m[k][k].abs();
+        let mut pivot_mag = m[(k, k)].abs();
         for i in (k + 1)..N {
-            let mag = m[i][k].abs();
+            let mag = m[(i, k)].abs();
             if mag > pivot_mag {
                 pivot_mag = mag;
                 pivot_row = i;
@@ -1318,9 +1346,9 @@ pub fn solve_fixed<const N: usize>(
         if pivot_row != k {
             // Element-wise row swap (mem::swap of arrays risks memcpy).
             for j in 0..N {
-                let tmp = m[k][j];
-                m[k][j] = m[pivot_row][j];
-                m[pivot_row][j] = tmp;
+                let tmp = m[(k, j)];
+                m[(k, j)] = m[(pivot_row, j)];
+                m[(pivot_row, j)] = tmp;
             }
             let tmp = y[k];
             y[k] = y[pivot_row];
@@ -1329,10 +1357,11 @@ pub fn solve_fixed<const N: usize>(
 
         // Eliminate below the pivot.
         for i in (k + 1)..N {
-            let factor = m[i][k] / m[k][k];
-            m[i][k] = 0.0;
+            let factor = m[(i, k)] / m[(k, k)];
+            m[(i, k)] = 0.0;
             for j in (k + 1)..N {
-                m[i][j] -= factor * m[k][j];
+                let delta = factor * m[(k, j)];
+                m[(i, j)] -= delta;
             }
             y[i] -= factor * y[k];
         }
@@ -1342,12 +1371,12 @@ pub fn solve_fixed<const N: usize>(
     for i in (0..N).rev() {
         let mut acc = y[i];
         for j in (i + 1)..N {
-            acc -= m[i][j] * y[j];
+            acc -= m[(i, j)] * y[j];
         }
-        y[i] = acc / m[i][i];
+        y[i] = acc / m[(i, i)];
     }
 
-    Ok(SVector::from_fn(|i| y[i]))
+    Ok(y)
 }
 ```
 
@@ -1365,6 +1394,13 @@ pub use fixed::solve_fixed;
 
 In `src/lib.rs` add `pub mod linalg;` and extend re-exports:
 `pub use crate::linalg::{LinalgError, solve_fixed};`
+
+Untested-pattern warning: returning `Result<SVector<N>, LinalgError>` from a
+kernel-reachable function wraps the aggregate in an enum — this shape has NOT
+been Enzyme-verified. If the Enzyme test fails with "Cannot deduce type",
+bisect with a minimal kernel first; the fallback is an internal infallible
+`solve_fixed_unchecked` that the kernel path calls directly (documented
+NaN propagation on zero pivot) with the `Result` wrapper kept for host code.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1685,7 +1721,7 @@ Create `tests/linalg_adjoint.rs`:
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{
-    Matrix, SMatrix, SVector, Vector, lu_factor, solve_fixed, solve_jvp, solve_vjp,
+    Matrix, SMatrix, SVector, Vector, lu_factor, solve_fixed_unchecked, solve_jvp, solve_vjp,
 };
 use std::autodiff::autodiff_reverse;
 
@@ -1708,7 +1744,9 @@ fn kernel(theta: &[f64], out: &mut f64) {
         theta[3 * i + j] + if i == j { DIAG_SHIFT } else { 0.0 }
     });
     let b = SVector::<3>::from_fn(|i| theta[9 + i]);
-    let x = solve_fixed(&a, &b).expect("wc");
+    // Kernel path uses the infallible variant: Result-enum returns from
+    // kernel-reachable fns fail Enzyme (Task 5 finding).
+    let x = solve_fixed_unchecked(&a, &b);
     *out = x.norm_squared();
 }
 
@@ -1936,7 +1974,7 @@ Create `examples/solve_gradient.rs`:
 #![feature(autodiff)]
 
 use mercury::validation::central_difference_gradient;
-use mercury::{Matrix, SMatrix, SVector, Vector, lu_factor, solve_fixed, solve_vjp};
+use mercury::{Matrix, SMatrix, SVector, Vector, lu_factor, solve_fixed_unchecked, solve_vjp};
 use std::autodiff::autodiff_reverse;
 
 const DIAG_SHIFT: f64 = 5.0;
@@ -1955,7 +1993,7 @@ fn kernel(theta: &[f64], out: &mut f64) {
         theta[3 * i + j] + if i == j { DIAG_SHIFT } else { 0.0 }
     });
     let b = SVector::<3>::from_fn(|i| theta[9 + i]);
-    *out = solve_fixed(&a, &b).unwrap().norm_squared();
+    *out = solve_fixed_unchecked(&a, &b).norm_squared();
 }
 
 fn main() {
