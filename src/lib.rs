@@ -9,4 +9,8 @@ mod objective;
 
 pub use objective::ValueGradient;
 
+pub mod core;
+
+pub use crate::core::SVector;
+
 pub mod validation;

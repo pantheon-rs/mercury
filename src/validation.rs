@@ -1,6 +1,6 @@
 //! Derivative validation utilities for Mercury's Phase 1 `f64` core.
 
-use core::fmt;
+use std::fmt;
 
 /// Error returned by derivative validation helpers.
 #[derive(Debug, Clone, PartialEq)]
