@@ -13,4 +13,8 @@ pub mod core;
 
 pub use crate::core::{SMatrix, SVector};
 
+pub mod geometry;
+
+pub use crate::geometry::Quaternion;
+
 pub mod validation;
