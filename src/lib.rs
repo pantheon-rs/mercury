@@ -1,7 +1,16 @@
 //! Differentiable math substrate for `pantheon-rs`.
 //!
-//! Mercury Phase 1 is a plain-`f64` core differentiated with Rust nightly
-//! `std::autodiff` / Enzyme.
+//! Every Mercury primitive is plain-`f64` Rust with a validated,
+//! Mercury-owned derivative rule (decision 0003). Enzyme differentiates
+//! user kernels; Mercury owns the rules at the joints.
+//!
+//! - [`core`]: POD-transparent types. Fixed-size (`SVector`, `SMatrix`) are
+//!   kernel-safe; dynamic (`Vector`, `Matrix`) host data outside kernels.
+//! - [`geometry`]: `Quaternion` and rotations (analytic derivatives).
+//! - [`linalg`]: `solve_fixed` (kernel-safe, differentiate-through) and the
+//!   dynamic LU `solve` whose derivative is the adjoint rule
+//!   (`solve_vjp`/`solve_jvp`) — never the factorization.
+//! - [`validation`]: finite-difference oracles for the three-legged test law.
 #![feature(autodiff)]
 #![forbid(unsafe_code)]
 

@@ -20,16 +20,26 @@ stack, or a full linear algebra facade. Sparsity, graph coloring, and
 optimization-facing callbacks are designed when real problem scale demands
 them, without changing ordinary model code into a symbolic DSL.
 
+Phase 2 adds the owned core types and the first owned derivative rule:
+kernel-safe `SVector`/`SMatrix`/`Quaternion` (proven against Enzyme per
+type), host-side `Vector`/`Matrix`, and linear solve where small systems
+differentiate through `solve_fixed` while problem-scale systems use the
+LU primitive with the adjoint rule. See
+`docs/decisions/0003-differentiable-primitives-identity.md`.
+
 ## Source Layout
 
 ```text
 src/
   lib.rs
-  objective.rs
-  validation.rs
-tests/
-  objective.rs
-  validation.rs
+  objective.rs     # scalar_objective! macro (Enzyme reverse entry points)
+  validation.rs    # finite-difference oracles
+  core/            # SVector, SMatrix (kernel-safe) + Vector, Matrix (host-side)
+  geometry/        # Quaternion
+  linalg/          # solve_fixed, LU solve + adjoint rule (solve_vjp/solve_jvp)
+tests/             # one suite per module, three-legged test law
+examples/
+  solve_gradient.rs  # one gradient, three ways (fd / enzyme / adjoint)
 ```
 
 The root crate is the Enzyme-backed Mercury library. `src/objective.rs` contains
