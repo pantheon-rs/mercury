@@ -27,7 +27,8 @@ impl<const N: usize> SVector<N> {
     pub fn from_fn(mut f: impl FnMut(usize) -> f64) -> Self {
         // Enzyme constraints, empirically pinned (2026-07-02 bisection):
         // - no `std::array::from_fn` (MaybeUninit machinery -> untyped memcpy)
-        // - no `[0.0; N]` zero-init on kernel paths (memset)
+        // - no `[0.0; N]` zero-init on kernel paths (memset); the N == 0
+        //   early return below is the one exception (zero bytes, no memset)
         // - no iterator adapters in kernel-reachable loops (untypeable copy);
         //   plain `for i in 0..N` indexed loops only
         // - construct the aggregate in ONE expression, then mutate through
