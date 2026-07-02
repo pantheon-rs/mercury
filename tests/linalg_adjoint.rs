@@ -27,9 +27,8 @@ fn objective(theta: &[f64]) -> f64 {
 /// The same objective as an Enzyme kernel through solve_fixed.
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(theta: &[f64], out: &mut f64) {
-    let a = SMatrix::<3, 3>::from_fn(|i, j| {
-        theta[3 * i + j] + if i == j { DIAG_SHIFT } else { 0.0 }
-    });
+    let a =
+        SMatrix::<3, 3>::from_fn(|i, j| theta[3 * i + j] + if i == j { DIAG_SHIFT } else { 0.0 });
     let b = SVector::<3>::from_fn(|i| theta[9 + i]);
     // Kernel path uses the infallible variant: Result-enum returns from
     // kernel-reachable fns fail Enzyme (Task 5 finding).
@@ -112,8 +111,16 @@ fn jvp_matches_directional_finite_difference() {
     let h = 1.0e-7;
     let a_p = Matrix::from_fn(3, 3, |i, j| a[(i, j)] + h * a_dot[(i, j)]);
     let a_m = Matrix::from_fn(3, 3, |i, j| a[(i, j)] - h * a_dot[(i, j)]);
-    let b_p = Vector::from_slice(&[b[0] + h * b_dot[0], b[1] + h * b_dot[1], b[2] + h * b_dot[2]]);
-    let b_m = Vector::from_slice(&[b[0] - h * b_dot[0], b[1] - h * b_dot[1], b[2] - h * b_dot[2]]);
+    let b_p = Vector::from_slice(&[
+        b[0] + h * b_dot[0],
+        b[1] + h * b_dot[1],
+        b[2] + h * b_dot[2],
+    ]);
+    let b_m = Vector::from_slice(&[
+        b[0] - h * b_dot[0],
+        b[1] - h * b_dot[1],
+        b[2] - h * b_dot[2],
+    ]);
     let x_p = lu_factor(&a_p).expect("wc").solve(&b_p).expect("wc");
     let x_m = lu_factor(&a_m).expect("wc").solve(&b_m).expect("wc");
 

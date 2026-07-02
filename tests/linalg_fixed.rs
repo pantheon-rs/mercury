@@ -78,5 +78,8 @@ fn enzyme_differentiates_through_solve() {
 
     let fd = central_difference_gradient(kernel_value, &x, 1.0e-6).expect("fd");
     let check = compare_gradients(&grad, &fd).expect("shape");
-    assert!(check.max_abs_error < 1.0e-4, "{check:?}\n ad={grad:?}\n fd={fd:?}");
+    assert!(
+        check.max_abs_error < 1.0e-4,
+        "{check:?}\n ad={grad:?}\n fd={fd:?}"
+    );
 }

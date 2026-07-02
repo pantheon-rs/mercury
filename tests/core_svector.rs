@@ -69,5 +69,8 @@ fn enzyme_gradient_matches_finite_differences() {
     let fd = central_difference_gradient(kernel_value, &x, 1.0e-6)
         .expect("finite-difference gradient should compute");
     let check = compare_gradients(&grad, &fd).expect("same shape");
-    assert!(check.max_abs_error < 1.0e-4, "{check:?}\n ad={grad:?}\n fd={fd:?}");
+    assert!(
+        check.max_abs_error < 1.0e-4,
+        "{check:?}\n ad={grad:?}\n fd={fd:?}"
+    );
 }

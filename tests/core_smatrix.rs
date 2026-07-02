@@ -3,8 +3,8 @@
 //! SMatrix unit tests + Enzyme kernel test (the linalg_compat control kernel
 //! rewritten with Mercury types, plus an analytic oracle).
 
-use mercury::{SMatrix, SVector};
 use mercury::validation::{central_difference_gradient, compare_gradients};
+use mercury::{SMatrix, SVector};
 use std::autodiff::autodiff_reverse;
 
 #[test]
@@ -87,5 +87,8 @@ fn enzyme_gradient_matches_fd_and_analytic() {
         }
     }
     let an_check = compare_gradients(&grad, &analytic).expect("shape");
-    assert!(an_check.max_abs_error < 1.0e-9, "{an_check:?}\n ad={grad:?}\n an={analytic:?}");
+    assert!(
+        an_check.max_abs_error < 1.0e-9,
+        "{an_check:?}\n ad={grad:?}\n an={analytic:?}"
+    );
 }

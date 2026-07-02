@@ -31,7 +31,10 @@ pub struct LuFactors {
 pub fn lu_factor(a: &Matrix) -> Result<LuFactors, LinalgError> {
     let n = a.rows();
     if a.cols() != n {
-        return Err(LinalgError::DimensionMismatch { rows: a.rows(), cols: a.cols() });
+        return Err(LinalgError::DimensionMismatch {
+            rows: a.rows(),
+            cols: a.cols(),
+        });
     }
 
     let mut lu = a.clone();
@@ -87,7 +90,10 @@ impl LuFactors {
     pub fn solve(&self, b: &Vector) -> Result<Vector, LinalgError> {
         let n = self.dimension();
         if b.len() != n {
-            return Err(LinalgError::DimensionMismatch { rows: b.len(), cols: 1 });
+            return Err(LinalgError::DimensionMismatch {
+                rows: b.len(),
+                cols: 1,
+            });
         }
 
         // Forward: L y = P b (L unit lower).
@@ -120,7 +126,10 @@ impl LuFactors {
     pub fn solve_transposed(&self, c: &Vector) -> Result<Vector, LinalgError> {
         let n = self.dimension();
         if c.len() != n {
-            return Err(LinalgError::DimensionMismatch { rows: c.len(), cols: 1 });
+            return Err(LinalgError::DimensionMismatch {
+                rows: c.len(),
+                cols: 1,
+            });
         }
 
         // Forward: U^T w = c (U^T lower, non-unit diagonal).

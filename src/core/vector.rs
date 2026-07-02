@@ -27,7 +27,9 @@ impl Vector {
     /// Copies from a slice.
     #[must_use]
     pub fn from_slice(data: &[f64]) -> Self {
-        Self { data: data.to_vec() }
+        Self {
+            data: data.to_vec(),
+        }
     }
 
     /// Number of elements.
@@ -89,7 +91,13 @@ impl Add for &Vector {
     /// On length mismatch.
     fn add(self, rhs: Self) -> Vector {
         assert_eq!(self.len(), rhs.len(), "dimension mismatch in Vector add");
-        Vector::from_vec(self.data.iter().zip(&rhs.data).map(|(a, b)| a + b).collect())
+        Vector::from_vec(
+            self.data
+                .iter()
+                .zip(&rhs.data)
+                .map(|(a, b)| a + b)
+                .collect(),
+        )
     }
 }
 
@@ -99,7 +107,13 @@ impl Sub for &Vector {
     /// On length mismatch.
     fn sub(self, rhs: Self) -> Vector {
         assert_eq!(self.len(), rhs.len(), "dimension mismatch in Vector sub");
-        Vector::from_vec(self.data.iter().zip(&rhs.data).map(|(a, b)| a - b).collect())
+        Vector::from_vec(
+            self.data
+                .iter()
+                .zip(&rhs.data)
+                .map(|(a, b)| a - b)
+                .collect(),
+        )
     }
 }
 

@@ -37,15 +37,17 @@ let
     formatter.config.build.wrapper
   ];
 
-  enzymeTools =
-    [ rustWithEnzyme llvmTools ]
-    ++ commonTools
-    ++ (with pkgs; [
-      rust-analyzer
-      cargo-deny
-      cargo-llvm-cov
-      cargo-semver-checks
-    ]);
+  enzymeTools = [
+    rustWithEnzyme
+    llvmTools
+  ]
+  ++ commonTools
+  ++ (with pkgs; [
+    rust-analyzer
+    cargo-deny
+    cargo-llvm-cov
+    cargo-semver-checks
+  ]);
 
   enzymeShell = pkgs.mkShell {
     packages = enzymeTools;

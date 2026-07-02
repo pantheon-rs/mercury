@@ -72,9 +72,13 @@ impl<const R: usize, const C: usize> SMatrix<R, C> {
         // a row-array splat does not. Different lowering, different fix.
         if R == 0 || C == 0 {
             // Zero-size exception: zero bytes, no memset is emitted.
-            return Self { data: [[0.0; C]; R] };
+            return Self {
+                data: [[0.0; C]; R],
+            };
         }
-        let mut m = Self { data: [[1.0; C]; R] };
+        let mut m = Self {
+            data: [[1.0; C]; R],
+        };
         for i in 0..R {
             for j in 0..C {
                 m.data[i][j] = f(i, j);
@@ -86,7 +90,9 @@ impl<const R: usize, const C: usize> SMatrix<R, C> {
     /// All-zeros matrix. Host-side only: zero-init lowers to memset.
     #[must_use]
     pub const fn zeros() -> Self {
-        Self { data: [[0.0; C]; R] }
+        Self {
+            data: [[0.0; C]; R],
+        }
     }
 
     /// Transposed copy.

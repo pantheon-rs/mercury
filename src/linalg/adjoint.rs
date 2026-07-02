@@ -57,7 +57,10 @@ pub fn solve_jvp(
 ) -> Result<Vector, LinalgError> {
     let n = factors.dimension();
     if a_dot.rows() != n || a_dot.cols() != n {
-        return Err(LinalgError::DimensionMismatch { rows: a_dot.rows(), cols: a_dot.cols() });
+        return Err(LinalgError::DimensionMismatch {
+            rows: a_dot.rows(),
+            cols: a_dot.cols(),
+        });
     }
     let rhs = &*b_dot - &(a_dot * x);
     factors.solve(&rhs)

@@ -19,7 +19,11 @@ impl Matrix {
     /// Zero matrix of shape `rows x cols`.
     #[must_use]
     pub fn zeros(rows: usize, cols: usize) -> Self {
-        Self { rows, cols, data: vec![0.0; rows * cols] }
+        Self {
+            rows,
+            cols,
+            data: vec![0.0; rows * cols],
+        }
     }
 
     /// Builds each element from `(row, col)`.
@@ -72,7 +76,11 @@ impl Mul<&Vector> for &Matrix {
     /// # Panics
     /// When `self.cols() != rhs.len()`.
     fn mul(self, rhs: &Vector) -> Vector {
-        assert_eq!(self.cols, rhs.len(), "dimension mismatch in Matrix * Vector");
+        assert_eq!(
+            self.cols,
+            rhs.len(),
+            "dimension mismatch in Matrix * Vector"
+        );
         Vector::from_vec(
             (0..self.rows)
                 .map(|i| (0..self.cols).map(|k| self[(i, k)] * rhs[k]).sum())
