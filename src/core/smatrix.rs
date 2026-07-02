@@ -66,7 +66,12 @@ impl<const R: usize, const C: usize> SMatrix<R, C> {
         //    context of `from_fn`'s own body, where scalarization is
         //    reliable regardless of how many times it's called from the
         //    differentiated caller.
+        //
+        // Note the deliberate asymmetry with `SVector::from_fn`, which is
+        // `#[inline(always)]`: a scalar splat scalarizes reliably inline,
+        // a row-array splat does not. Different lowering, different fix.
         if R == 0 || C == 0 {
+            // Zero-size exception: zero bytes, no memset is emitted.
             return Self { data: [[0.0; C]; R] };
         }
         let mut m = Self { data: [[1.0; C]; R] };
