@@ -6,6 +6,10 @@
     flake-utils.url = "github:numtide/flake-utils";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     crane.url = "github:ipetkov/crane";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -15,14 +19,20 @@
       flake-utils,
       treefmt-nix,
       crane,
+      rust-overlay,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs {
           inherit system;
+          overlays = [ (import rust-overlay) ];
         };
-        craneLib = crane.mkLib pkgs;
+        rustWithEnzyme = import ./nix/rust-toolchain.nix { inherit pkgs; };
+        # The checks must compile with the SAME pinned nightly+Enzyme
+        # toolchain as the dev shell: the crate is nightly-only and its
+        # tests exercise -Zautodiff codegen.
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustWithEnzyme;
         formatter = import ./nix/formatter.nix {
           inherit pkgs treefmt-nix;
           projectRootFile = "flake.nix";
@@ -41,7 +51,7 @@
           inherit (packages) commonArgs cargoArtifacts mercury;
         };
         devShells = import ./nix/dev-shells.nix {
-          inherit pkgs formatter;
+          inherit pkgs formatter rustWithEnzyme;
         };
       in
       {

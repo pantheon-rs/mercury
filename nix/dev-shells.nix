@@ -1,6 +1,7 @@
 {
   pkgs,
   formatter,
+  rustWithEnzyme,
 }:
 
 let
@@ -10,19 +11,6 @@ let
     export LLVM_PROFDATA=${llvmTools}/bin/llvm-profdata
   '';
 
-  rustTools = with pkgs; [
-    cargo
-    rustc
-    rustfmt
-    clippy
-    rust-analyzer
-    cargo-nextest
-    cargo-llvm-cov
-    cargo-deny
-    cargo-semver-checks
-    llvmTools
-  ];
-
   commonTools = with pkgs; [
     git
     jq
@@ -30,17 +18,35 @@ let
     pkg-config
     formatter.config.build.wrapper
   ];
-in
-{
-  default = pkgs.mkShell {
-    packages = rustTools ++ commonTools;
+
+  enzymeTools = [
+    rustWithEnzyme
+    llvmTools
+  ]
+  ++ commonTools
+  ++ (with pkgs; [
+    rust-analyzer
+    cargo-deny
+    cargo-llvm-cov
+    cargo-semver-checks
+  ]);
+
+  enzymeShell = pkgs.mkShell {
+    packages = enzymeTools;
+
+    RUSTFLAGS = "-Zautodiff=Enable";
+    MERCURY_ENZYME_SHELL = "1";
 
     shellHook = ''
       export RUST_BACKTRACE=1
       ${llvmCoverageEnv}
-      echo "Mercury development shell"
+      echo "Mercury Enzyme shell"
+      echo "  rustc: $(rustc --version 2>/dev/null)"
     '';
   };
+in
+{
+  default = enzymeShell;
 
   bootstrap = pkgs.mkShell {
     packages = with pkgs; [
@@ -56,8 +62,7 @@ in
 
   perf = pkgs.mkShell {
     packages =
-      rustTools
-      ++ commonTools
+      enzymeTools
       ++ (with pkgs; [
         cargo-flamegraph
         heaptrack
@@ -73,4 +78,6 @@ in
       echo "Mercury performance shell"
     '';
   };
+
+  enzyme = enzymeShell;
 }
