@@ -22,6 +22,8 @@
   3. NO iterator adapters (`iter_mut().enumerate()`, `zip`, `skip`) in kernel-reachable loops — plain `for i in 0..N` indexed loops only, with `#[allow(clippy::needless_range_loop)]` where clippy objects.
   4. Aggregates must be constructed in ONE expression and then mutated THROUGH the struct binding (`let mut v = Self { data: [seed; N] }; v.data[i] = ...; v`). Binding a bare array, mutating it, then wrapping (`Self { data }`) leaves an aggregate-rvalue memcpy Enzyme rejects. Literal construction (`Self::new([a, b, c])`) is always safe.
   5. `-Zautodiff=Enable,LooseTypes` is BANNED: it compiles these patterns but produces silently wrong gradients (verified).
+  6. Nested aggregate splats seeded from runtime values (`[[f(0,0); C]; R]`) fail (the outer repeat memcpys the runtime-computed row). Fix: compile-time-constant seed (`[[1.0; C]; R]`, fully overwritten) PLUS `#[inline(never)]` on the constructor — both required; see `src/core/smatrix.rs::from_fn`.
+  7. `Result<T, E>` returns from kernel-reachable functions fail (enum-wrapped aggregate). Pattern: infallible `_unchecked` variant for kernel paths (documented NaN/inf propagation), `Result` wrapper for host code; see `src/linalg/fixed.rs`.
   If a new pattern fails, bisect with a minimal kernel before redesigning — see `src/core/svector.rs::from_fn` comment for the canonical safe shape.
 - Commit after every task. No pre-commit hooks are installed; still verify `git status` scope before committing.
 - Gradient tolerances: Enzyme vs analytic `max_abs_error < 1e-9`; Enzyme vs finite differences `max_abs_error < 1e-4` (matches Phase 1 conventions in `tests/objective.rs`).
@@ -468,17 +470,28 @@ impl<const R: usize, const C: usize> SMatrix<R, C> {
     /// IR discipline in the plan's Global Constraints).
     #[must_use]
     #[allow(clippy::needless_range_loop)]
+    #[inline(never)]
     pub fn from_fn(mut f: impl FnMut(usize, usize) -> f64) -> Self {
         // Construct-then-mutate pattern (Global Constraints rule 4).
         // f is called exactly once per element, in row-major order.
+        //
+        // Seeded with a compile-time CONSTANT (1.0, never read) rather than
+        // a value derived from `f`, then unconditionally overwritten below
+        // (Global Constraints rule 6): nesting SVector's proven 1D
+        // splat-then-overwrite pattern one level deeper does NOT generalize
+        // — `[[f(0, 0); C]; R]` lowers the outer repeat as an
+        // `llvm.memcpy` of a runtime-computed row, which Enzyme's type
+        // analysis cannot deduce a type for. `#[inline(never)]` is also
+        // required: with multiple `from_fn` calls inlined into the same
+        // differentiated kernel, LLVM's CSE reintroduces a shared-constant
+        // memcpy across the constant-seeded arrays that Enzyme still can't
+        // type; keeping this a real, non-inlined call sidesteps that.
         if R == 0 || C == 0 {
+            // Zero-size exception: zero bytes, no memset is emitted.
             return Self { data: [[0.0; C]; R] };
         }
-        let mut m = Self { data: [[f(0, 0); C]; R] };
-        for j in 1..C {
-            m.data[0][j] = f(0, j);
-        }
-        for i in 1..R {
+        let mut m = Self { data: [[1.0; C]; R] };
+        for i in 0..R {
             for j in 0..C {
                 m.data[i][j] = f(i, j);
             }
@@ -571,11 +584,11 @@ impl<const R: usize, const C: usize> Mul<SVector<C>> for SMatrix<R, C> {
 In `src/core/mod.rs` add `mod smatrix;` and `pub use smatrix::SMatrix;`.
 In `src/lib.rs` change the re-export to `pub use crate::core::{SMatrix, SVector};`.
 
-Untested-pattern warning: the nested splat seed `[[f(0, 0); C]; R]` copies the
-inner row array R times — this shape has NOT been Enzyme-verified. If the
-Enzyme test fails with "Cannot deduce type", bisect with a minimal kernel
-(one `#[autodiff_reverse]` fn in a scratch test file) before changing the
-API: try seeding row-by-row through the binding, and report what you find.
+Outcome: pattern TESTED and FAILED as predicted — the nested splat seed
+`[[f(0, 0); C]; R]` copies the inner row array R times, and Enzyme's type
+analysis cannot deduce a type for that `llvm.memcpy` ("Cannot deduce type of
+copy"). The fixed shape is Global Constraints rule 6 (compile-time-constant
+seed, full overwrite, `#[inline(never)]`); see `src/core/smatrix.rs`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1179,7 +1192,7 @@ Create `tests/linalg_fixed.rs`:
 //! solve_fixed unit tests + the differentiate-through-the-solver Enzyme test.
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
-use mercury::{LinalgError, SMatrix, SVector, solve_fixed};
+use mercury::{LinalgError, SMatrix, SVector, solve_fixed, solve_fixed_unchecked};
 use std::autodiff::autodiff_reverse;
 
 #[test]
@@ -1223,7 +1236,9 @@ fn singular_matrix_is_an_error() {
 fn kernel(x: &[f64], out: &mut f64) {
     let a = SMatrix::<3, 3>::from_fn(|i, j| x[3 * i + j] + if i == j { 5.0 } else { 0.0 });
     let b = SVector::<3>::from_fn(|i| x[9 + i]);
-    let s = solve_fixed(&a, &b).expect("shifted matrix is well-conditioned");
+    // Kernel path uses the infallible variant: Result-enum returns from
+    // kernel-reachable fns fail Enzyme (Global Constraints rule 7).
+    let s = solve_fixed_unchecked(&a, &b);
     *out = s.norm_squared();
 }
 
@@ -1395,12 +1410,13 @@ pub use fixed::solve_fixed;
 In `src/lib.rs` add `pub mod linalg;` and extend re-exports:
 `pub use crate::linalg::{LinalgError, solve_fixed};`
 
-Untested-pattern warning: returning `Result<SVector<N>, LinalgError>` from a
-kernel-reachable function wraps the aggregate in an enum — this shape has NOT
-been Enzyme-verified. If the Enzyme test fails with "Cannot deduce type",
-bisect with a minimal kernel first; the fallback is an internal infallible
-`solve_fixed_unchecked` that the kernel path calls directly (documented
-NaN propagation on zero pivot) with the `Result` wrapper kept for host code.
+Outcome: tested, failed, fallback implemented as Global Constraints rule 7 —
+returning `Result<SVector<N>, LinalgError>` from a kernel-reachable function
+wraps the aggregate in an enum, which Enzyme's type analysis cannot deduce a
+type for. `solve_fixed_unchecked` is the public, infallible variant the
+kernel path calls directly (documented NaN/inf propagation on zero pivot);
+`solve_fixed` keeps the `Result` wrapper for host code. The kernel test uses
+`solve_fixed_unchecked`.
 
 - [ ] **Step 4: Run test to verify it passes**
 

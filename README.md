@@ -23,8 +23,9 @@ them, without changing ordinary model code into a symbolic DSL.
 Phase 2 adds the owned core types and the first owned derivative rule:
 kernel-safe `SVector`/`SMatrix`/`Quaternion` (proven against Enzyme per
 type), host-side `Vector`/`Matrix`, and linear solve where small systems
-differentiate through `solve_fixed` while problem-scale systems use the
-LU primitive with the adjoint rule. See
+differentiate through `solve_fixed_unchecked` (the kernel-safe infallible
+variant; `solve_fixed` is the `Result`-returning host wrapper) while
+problem-scale systems use the LU primitive with the adjoint rule. See
 `docs/decisions/0003-differentiable-primitives-identity.md`.
 
 ## Source Layout
@@ -78,4 +79,6 @@ nix develop
 - [Architecture](docs/architecture.md)
 - [Phase 1 Enzyme-backed `f64` decision](docs/decisions/0002-phase-1-enzyme-f64-core.md)
 - [Phase 1 gradient validation implementation plan](docs/implementation-plans/phase-1-gradient-validation.md)
+- [Phase 2 differentiable primitives identity decision](docs/decisions/0003-differentiable-primitives-identity.md)
+- [Phase 2 core types + linalg implementation plan](docs/implementation-plans/phase-2-core-types-and-linalg.md)
 - [Decisions](docs/decisions/)

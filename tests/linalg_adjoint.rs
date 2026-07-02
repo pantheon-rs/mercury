@@ -142,3 +142,13 @@ fn vjp_dimension_mismatch_errors() {
     let bad = Vector::zeros(2);
     assert!(solve_vjp(&f, &x, &bad).is_err());
 }
+
+#[test]
+fn jvp_dimension_mismatch_errors() {
+    let a = Matrix::from_fn(3, 3, |i, j| if i == j { 5.0 } else { 0.1 });
+    let f = lu_factor(&a).expect("wc");
+    let x = Vector::zeros(3);
+    let a_dot = Matrix::from_fn(3, 3, |_, _| 0.0);
+    let bad_b_dot = Vector::zeros(2);
+    assert!(solve_jvp(&f, &x, &a_dot, &bad_b_dot).is_err());
+}

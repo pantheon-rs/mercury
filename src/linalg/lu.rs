@@ -8,10 +8,7 @@
 
 use crate::core::{Matrix, Vector};
 
-use super::LinalgError;
-
-/// Pivot magnitudes below this are treated as singular.
-const PIVOT_TOLERANCE: f64 = 1.0e-12;
+use super::{LinalgError, PIVOT_TOLERANCE};
 
 /// Reusable LU factors of a square matrix (`P A = L U`).
 #[derive(Debug, Clone)]

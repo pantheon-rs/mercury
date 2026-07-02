@@ -2,10 +2,7 @@
 
 use crate::core::{SMatrix, SVector};
 
-use super::LinalgError;
-
-/// Pivot magnitudes below this are treated as singular.
-const PIVOT_TOLERANCE: f64 = 1.0e-12;
+use super::{LinalgError, PIVOT_TOLERANCE};
 
 /// Solves `A x = b` for small fixed-size systems on the stack, without a
 /// singularity check.
@@ -29,7 +26,7 @@ const PIVOT_TOLERANCE: f64 = 1.0e-12;
 /// failure when its `Result` return is used inside an autodiff kernel.
 ///
 /// If the pivot column is singular (no entry at or below the diagonal
-/// clears [`PIVOT_TOLERANCE`]), this function does **not** error: the
+/// clears `PIVOT_TOLERANCE`), this function does **not** error: the
 /// elimination divides by (near-)zero and the affected output components
 /// become `NaN`/`±inf`, propagating through back-substitution. Callers that
 /// need a hard error (host-side code, not inside a differentiated kernel)

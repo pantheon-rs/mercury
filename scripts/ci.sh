@@ -16,7 +16,28 @@ LOG_FILE="logs/ci_${TIMESTAMP}.log"
     echo
 
     ./scripts/format.sh --check
-    cargo clippy --release --all-targets --all-features -- -D warnings
+
+    CLIPPY_LOG="$(mktemp)"
+    if ! cargo clippy --release --all-targets --all-features -- -D warnings \
+        >"$CLIPPY_LOG" 2>&1; then
+        if grep -q "autodiff backend not found in the sysroot: failed to find a \`libEnzyme-22\` folder" \
+            "$CLIPPY_LOG"; then
+            cat "$CLIPPY_LOG"
+            echo
+            echo "WARNING: clippy skipped — clippy-driver lacks the Enzyme sysroot" \
+                "(known toolchain gap, see" \
+                "docs/implementation-plans/phase-2-core-types-and-linalg.md);" \
+                "lints have NOT been evaluated"
+        else
+            cat "$CLIPPY_LOG"
+            rm -f "$CLIPPY_LOG"
+            exit 1
+        fi
+    else
+        cat "$CLIPPY_LOG"
+    fi
+    rm -f "$CLIPPY_LOG"
+
     ./scripts/test.sh
     ./scripts/docs.sh
     ./scripts/audit.sh
