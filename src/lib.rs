@@ -11,7 +11,7 @@ pub use objective::ValueGradient;
 
 pub mod core;
 
-pub use crate::core::{SMatrix, SVector};
+pub use crate::core::{Matrix, SMatrix, SVector, Vector};
 
 pub mod geometry;
 
