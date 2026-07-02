@@ -100,6 +100,31 @@ Each phase gets its own decision record and implementation plan.
   third-party internals that mostly do not pass Enzyme, and Mercury has no
   identity of its own.
 
+## Empirical Validation (2026-07-02)
+
+The "own the types" pillar was tested directly: a spike
+(`metis-ad-spike/linalg_compat/`, see its `RESULTS.md`) differentiated
+identical slice-to-scalar kernels through nalgebra 0.34.2 and faer 0.23.2
+under the pinned Enzyme toolchain, against a hand-rolled POD control.
+
+- Control (element-wise stores): **passes**, gradient matches finite
+  differences to 6e-10 relative.
+- nalgebra: every slice-constructor, heap, and solve path **fails to
+  compile** (`Enzyme: Cannot deduce type of copy llvm.memcpy`). Fixed-size
+  multiply passes only when every matrix is built element-wise via `::new`;
+  `LU::solve` fails on a memcpy *inside* nalgebra's internals, beyond user
+  control.
+- faer: multiply **crashes Enzyme** (SIGABRT in its runtime SIMD dispatch);
+  solve fails on an unhandled overflow-check intrinsic in its allocator.
+
+Conclusion: third-party linear algebra is not viable on differentiated paths
+today — compatibility hinges on which internal codepath an API takes, which
+is not a contract Mercury can build on. Both crates remain usable off
+differentiated paths and as backends *behind* adjoint-rule primitives, where
+Enzyme never sees their IR. These are toolchain-maturity failures, not
+mathematical ones; the per-pattern Enzyme compile tests are the tripwire for
+both regressions and future improvements.
+
 ## Consequences
 
 - Every primitive ships with the three-legged test law (Enzyme compile test,
