@@ -1,6 +1,12 @@
 #![feature(autodiff)]
+// Exact float asserts, tiny index->f64 casts, and short math names are intentional in tests.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
 
-//! SMatrix unit tests + Enzyme kernel test (the linalg_compat control kernel
+//! `SMatrix` unit tests + Enzyme kernel test (the `linalg_compat` control kernel
 //! rewritten with Mercury types, plus an analytic oracle).
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
@@ -63,7 +69,7 @@ fn kernel_value(x: &[f64]) -> f64 {
 
 #[test]
 fn enzyme_gradient_matches_fd_and_analytic() {
-    let x: Vec<f64> = (0..18).map(|i| 0.3 + 0.1 * (i as f64)).collect();
+    let x: Vec<f64> = (0..18).map(|i| 0.3 + 0.1 * f64::from(i)).collect();
     let mut grad = vec![0.0; 18];
     let (mut out, mut dout) = (0.0, 1.0);
     d_kernel(&x, &mut grad, &mut out, &mut dout);

@@ -1,10 +1,16 @@
 #![feature(autodiff)]
+// Exact float asserts, tiny index->f64 casts, and short math names are intentional in tests.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
 
-//! Adjoint-rule tests: solve_vjp/solve_jvp vs finite differences vs Enzyme.
+//! Adjoint-rule tests: `solve_vjp`/`solve_jvp` vs finite differences vs Enzyme.
 //!
 //! The three-way agreement test is the Phase 2 thesis demo: the same
 //! gradient from (1) finite differences, (2) Enzyme differentiating through
-//! solve_fixed, (3) the adjoint rule composing two LU solves.
+//! `solve_fixed_unchecked`, (3) the adjoint rule composing two LU solves.
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{
@@ -24,7 +30,7 @@ fn objective(theta: &[f64]) -> f64 {
     x.norm_squared()
 }
 
-/// The same objective as an Enzyme kernel through solve_fixed.
+/// The same objective as an Enzyme kernel through `solve_fixed_unchecked`.
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(theta: &[f64], out: &mut f64) {
     let a =

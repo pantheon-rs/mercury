@@ -1,3 +1,10 @@
+// Exact float asserts and tiny index->f64 casts are intentional in tests.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
+
 //! Dynamic LU factor/solve tests (primal only; adjoint rule is next task).
 
 use mercury::{Matrix, Vector, lu_factor, solve};

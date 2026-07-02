@@ -1,3 +1,10 @@
+// Exact float asserts and tiny index->f64 casts are intentional in tests.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
+
 //! Dynamic Vector/Matrix unit tests (host-side types; no Enzyme leg —
 //! kernels receive dynamic data as slices, which Phase 1 already proves).
 

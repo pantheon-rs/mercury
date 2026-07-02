@@ -17,26 +17,9 @@ LOG_FILE="logs/ci_${TIMESTAMP}.log"
 
     ./scripts/format.sh --check
 
-    CLIPPY_LOG="$(mktemp)"
-    if ! cargo clippy --release --all-targets --all-features -- -D warnings \
-        >"$CLIPPY_LOG" 2>&1; then
-        if grep -q "autodiff backend not found in the sysroot: failed to find a \`libEnzyme-22\` folder" \
-            "$CLIPPY_LOG"; then
-            cat "$CLIPPY_LOG"
-            echo
-            echo "WARNING: clippy skipped — clippy-driver lacks the Enzyme sysroot" \
-                "(known toolchain gap, see" \
-                "docs/implementation-plans/phase-2-core-types-and-linalg.md);" \
-                "lints have NOT been evaluated"
-        else
-            cat "$CLIPPY_LOG"
-            rm -f "$CLIPPY_LOG"
-            exit 1
-        fi
-    else
-        cat "$CLIPPY_LOG"
-    fi
-    rm -f "$CLIPPY_LOG"
+    # clippy runs on the shared rust-with-enzyme toolchain (the cargo-clippy
+    # realpath + appended-sysroot fix lives in nix/rust-toolchain.nix).
+    cargo clippy --release --all-targets --all-features -- -D warnings
 
     ./scripts/test.sh
     ./scripts/docs.sh

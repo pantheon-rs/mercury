@@ -75,7 +75,7 @@ pub fn lu_factor(a: &Matrix) -> Result<LuFactors, LinalgError> {
 impl LuFactors {
     /// Side length of the factored matrix.
     #[must_use]
-    pub fn dimension(&self) -> usize {
+    pub const fn dimension(&self) -> usize {
         self.perm.len()
     }
 

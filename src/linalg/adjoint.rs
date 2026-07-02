@@ -74,6 +74,6 @@ pub fn solve_jvp(
             cols: 1,
         });
     }
-    let rhs = &*b_dot - &(a_dot * x);
+    let rhs = b_dot - &(a_dot * x);
     factors.solve(&rhs)
 }

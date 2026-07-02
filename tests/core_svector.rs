@@ -1,6 +1,12 @@
 #![feature(autodiff)]
+// Exact float asserts and tiny index->f64 casts are intentional in tests.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
 
-//! SVector unit tests + Enzyme kernel-safety test (three-legged law).
+//! `SVector` unit tests + Enzyme kernel-safety test (three-legged law).
 
 use mercury::SVector;
 use mercury::validation::{central_difference_gradient, compare_gradients};

@@ -1,6 +1,12 @@
 #![feature(autodiff)]
+// Exact float asserts, tiny index->f64 casts, and short math names are intentional in tests.
+#![allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names
+)]
 
-//! solve_fixed unit tests + the differentiate-through-the-solver Enzyme test.
+//! `solve_fixed` unit tests + the differentiate-through-the-solver Enzyme test.
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{LinalgError, SMatrix, SVector, solve_fixed, solve_fixed_unchecked};

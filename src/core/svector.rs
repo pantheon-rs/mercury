@@ -22,7 +22,7 @@ impl<const N: usize> SVector<N> {
 
     /// Builds each element from its index (element-wise stores; kernel-safe).
     #[must_use]
-    #[inline(always)]
+    #[inline]
     #[allow(clippy::needless_range_loop)]
     pub fn from_fn(mut f: impl FnMut(usize) -> f64) -> Self {
         // Enzyme constraints, empirically pinned (2026-07-02 bisection):
@@ -59,7 +59,7 @@ impl<const N: usize> SVector<N> {
 
     /// Dot product.
     #[must_use]
-    #[inline(always)]
+    #[inline]
     pub fn dot(&self, rhs: &Self) -> f64 {
         let mut acc = 0.0;
         for i in 0..N {
@@ -70,14 +70,14 @@ impl<const N: usize> SVector<N> {
 
     /// Squared Euclidean norm.
     #[must_use]
-    #[inline(always)]
+    #[inline]
     pub fn norm_squared(&self) -> f64 {
         self.dot(self)
     }
 
     /// Euclidean norm. Not differentiable at the origin (sqrt kink).
     #[must_use]
-    #[inline(always)]
+    #[inline]
     pub fn norm(&self) -> f64 {
         self.norm_squared().sqrt()
     }
@@ -86,7 +86,7 @@ impl<const N: usize> SVector<N> {
 impl SVector<3> {
     /// Cross product (3-vectors only).
     #[must_use]
-    #[inline(always)]
+    #[inline]
     pub fn cross(&self, rhs: &Self) -> Self {
         Self::new([
             self.data[1] * rhs.data[2] - self.data[2] * rhs.data[1],
@@ -111,7 +111,7 @@ impl<const N: usize> IndexMut<usize> for SVector<N> {
 
 impl<const N: usize> Add for SVector<N> {
     type Output = Self;
-    #[inline(always)]
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Self::from_fn(|i| self.data[i] + rhs.data[i])
     }
@@ -119,7 +119,7 @@ impl<const N: usize> Add for SVector<N> {
 
 impl<const N: usize> Sub for SVector<N> {
     type Output = Self;
-    #[inline(always)]
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Self::from_fn(|i| self.data[i] - rhs.data[i])
     }
@@ -127,7 +127,7 @@ impl<const N: usize> Sub for SVector<N> {
 
 impl<const N: usize> Neg for SVector<N> {
     type Output = Self;
-    #[inline(always)]
+    #[inline]
     fn neg(self) -> Self {
         Self::from_fn(|i| -self.data[i])
     }
@@ -135,7 +135,7 @@ impl<const N: usize> Neg for SVector<N> {
 
 impl<const N: usize> Mul<f64> for SVector<N> {
     type Output = Self;
-    #[inline(always)]
+    #[inline]
     fn mul(self, s: f64) -> Self {
         Self::from_fn(|i| self.data[i] * s)
     }
@@ -143,7 +143,7 @@ impl<const N: usize> Mul<f64> for SVector<N> {
 
 impl<const N: usize> Div<f64> for SVector<N> {
     type Output = Self;
-    #[inline(always)]
+    #[inline]
     fn div(self, s: f64) -> Self {
         Self::from_fn(|i| self.data[i] / s)
     }

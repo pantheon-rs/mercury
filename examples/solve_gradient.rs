@@ -2,7 +2,7 @@
 //!
 //! d/d(theta) |A(theta)^{-1} b(theta)|^2 computed by
 //!   (1) central finite differences,
-//!   (2) Enzyme reverse-mode differentiating THROUGH solve_fixed,
+//!   (2) Enzyme reverse-mode differentiating THROUGH `solve_fixed_unchecked`,
 //!   (3) the adjoint rule (two LU solves) — no AD inside the solve at all.
 //!
 //! Run: `nix develop "path:$PWD" --command cargo run --release --example solve_gradient`
@@ -48,7 +48,7 @@ fn main() {
     let f = lu_factor(&a).unwrap();
     let x = f.solve(&b).unwrap();
     let grads = solve_vjp(&f, &x, &(&x * 2.0)).unwrap();
-    let mut adjoint = vec![0.0; 12];
+    let mut adjoint = [0.0; 12];
     for i in 0..3 {
         for j in 0..3 {
             adjoint[3 * i + j] = grads.a_bar[(i, j)];

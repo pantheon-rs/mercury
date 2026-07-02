@@ -68,7 +68,7 @@ impl<const R: usize, const C: usize> SMatrix<R, C> {
         //    differentiated caller.
         //
         // Note the deliberate asymmetry with `SVector::from_fn`, which is
-        // `#[inline(always)]`: a scalar splat scalarizes reliably inline,
+        // freely inlinable (plain `#[inline]`): a scalar splat scalarizes inline,
         // a row-array splat does not. Different lowering, different fix.
         if R == 0 || C == 0 {
             // Zero-size exception: zero bytes, no memset is emitted.

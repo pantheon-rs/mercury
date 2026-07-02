@@ -1,5 +1,7 @@
 # Mercury
 
+[![CI](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml) [![Format](https://github.com/pantheon-rs/mercury/actions/workflows/format.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/format.yml) [![Docs](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml) [![Security](https://github.com/pantheon-rs/mercury/actions/workflows/security.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/security.yml) [![codecov](https://codecov.io/gh/pantheon-rs/mercury/graph/badge.svg)](https://codecov.io/gh/pantheon-rs/mercury)
+
 `mercury` is the differentiable math substrate for `pantheon-rs`.
 
 The Phase 1 direction is an Enzyme-first autodiff crate for plain `f64` model

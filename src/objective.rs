@@ -12,13 +12,13 @@ pub struct ValueGradient {
 impl ValueGradient {
     /// Creates a value-gradient pair.
     #[must_use]
-    pub fn new(value: f64, gradient: Vec<f64>) -> Self {
+    pub const fn new(value: f64, gradient: Vec<f64>) -> Self {
         Self { value, gradient }
     }
 
     /// Returns the input dimension represented by this gradient.
     #[must_use]
-    pub fn dimension(&self) -> usize {
+    pub const fn dimension(&self) -> usize {
         self.gradient.len()
     }
 }

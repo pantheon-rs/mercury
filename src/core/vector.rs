@@ -20,7 +20,7 @@ impl Vector {
 
     /// Takes ownership of an existing buffer.
     #[must_use]
-    pub fn from_vec(data: Vec<f64>) -> Self {
+    pub const fn from_vec(data: Vec<f64>) -> Self {
         Self { data }
     }
 
@@ -34,13 +34,13 @@ impl Vector {
 
     /// Number of elements.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Whether the vector has zero elements.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
