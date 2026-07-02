@@ -11,6 +11,6 @@ pub use objective::ValueGradient;
 
 pub mod core;
 
-pub use crate::core::SVector;
+pub use crate::core::{SMatrix, SVector};
 
 pub mod validation;
