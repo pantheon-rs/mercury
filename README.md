@@ -2,10 +2,10 @@
 
 `mercury` is the differentiable math substrate for `pantheon-rs`.
 
-The Phase 1 direction is a small, plain-`f64` core differentiated by Rust
-nightly `std::autodiff` / Enzyme. This is the Metis idea reduced to the part
-that matters first: model code is written once as ordinary numeric Rust, and
-Mercury owns the derivative entry points and validation surface.
+The Phase 1 direction is an Enzyme-first autodiff crate for plain `f64` model
+code. This is the Metis idea reduced to the part that matters first: model code
+is written once as ordinary numeric Rust, and Mercury owns the derivative entry
+points, shadow-buffer plumbing, and validation surface.
 
 Phase 1 owns:
 
@@ -19,6 +19,40 @@ It does not start with a generic scalar trait, a symbolic graph engine, a solver
 stack, or a full linear algebra facade. Sparsity, graph coloring, and
 optimization-facing callbacks are designed when real problem scale demands
 them, without changing ordinary model code into a symbolic DSL.
+
+## Source Layout
+
+```text
+src/
+  lib.rs
+  objective.rs
+  validation.rs
+tests/
+  objective.rs
+  validation.rs
+```
+
+The root crate is the Enzyme-backed Mercury library. `src/objective.rs` contains
+the initial scalar-objective API, and `tests/objective.rs` proves that API
+against Enzyme, finite differences, and analytic gradients.
+
+The first user-facing API is:
+
+```rust
+mercury::scalar_objective! {
+    pub mod rosenbrock(x) {
+        let mut acc = 0.0;
+        for i in 0..x.len() - 1 {
+            let a = x[i + 1] - x[i] * x[i];
+            let b = 1.0 - x[i];
+            acc += 100.0 * a * a + b * b;
+        }
+        acc
+    }
+}
+
+let result = rosenbrock::value_and_gradient(&[0.5; 6]);
+```
 
 ## Development
 

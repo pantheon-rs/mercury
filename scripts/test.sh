@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
-enter_nix_if_needed "$@"
+enter_enzyme_nix_if_needed "$@"
 cd_project_root
 
-cargo nextest run --all-features
-cargo test --doc --all-features
+cargo test --release --all-features
+cargo test --doc --release --all-features

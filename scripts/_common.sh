@@ -11,6 +11,12 @@ enter_nix_if_needed() {
     fi
 }
 
+enter_enzyme_nix_if_needed() {
+    if [ "${MERCURY_ENZYME_SHELL:-}" != "1" ]; then
+        exec nix develop .#enzyme --command "$0" "$@"
+    fi
+}
+
 cd_project_root() {
     cd "$PROJECT_ROOT"
 }

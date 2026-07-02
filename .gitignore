@@ -7,3 +7,4 @@
 *.profdata
 flamegraph.svg
 perf.data*
+.superpowers/

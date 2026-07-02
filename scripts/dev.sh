@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
-    exec nix develop
+    exec nix develop .#enzyme
 fi
 
-exec nix develop --command "$@"
+exec nix develop .#enzyme --command "$@"

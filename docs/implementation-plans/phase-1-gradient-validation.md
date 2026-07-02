@@ -1,6 +1,6 @@
 # Phase 1 Gradient Validation Slice
 
-Status: planned  
+Status: in progress
 Date: 2026-06-30
 
 ## Goal
@@ -8,16 +8,16 @@ Date: 2026-06-30
 Build the smallest useful Mercury implementation slice:
 
 ```text
-plain f64 model kernel
-  -> Enzyme reverse-mode gradient
+scalar_objective! model definition
+  -> generated Enzyme reverse-mode gradient
   -> finite-difference and analytic validation
   -> clear diagnostics
 ```
 
 This is the first production step toward the Phase 1 Enzyme-backed `f64` core.
-It should prove the toolchain, kernel shape, derivative ABI, and validation
-surface before Mercury grows math, linear algebra, sparsity, or optimization
-layers.
+It should prove the toolchain, first user-facing API shape, derivative ABI, and
+validation surface before Mercury grows math, linear algebra, sparsity, or
+optimization layers.
 
 ## Source References
 
@@ -25,7 +25,7 @@ layers.
   `/home/tanged/sources/metis/include/metis/utils/DiffTestHarness.hpp`
 - Metis finite-difference utilities:
   `/home/tanged/sources/metis/include/metis/math/FiniteDifference.hpp`
-- Enzyme toolchain and smoke test:
+- Enzyme toolchain and prototype checks:
   `/home/tanged/sources/metis-ad-spike/std_autodiff/`
 - Enzyme vs `ad_trait` benchmark:
   `/home/tanged/sources/metis-ad-spike/bench_enzyme_vs_adtrait/`
@@ -54,19 +54,18 @@ Tasks:
 - Set `RUSTFLAGS="-Zautodiff=Enable"` only in that Enzyme shell.
 - Add a release profile with `lto = "fat"` for the Enzyme test target.
 - Document the command that runs Enzyme tests.
-- Keep the normal stable/dev workflow working for ordinary tests.
+- Make the normal Mercury dev/test workflow use the pinned Enzyme toolchain.
 
 Acceptance:
 
-- `./scripts/test.sh` still runs the normal scaffold tests.
-- An explicit Enzyme command can build one `#![feature(autodiff)]` target in
+- `nix develop` enters the pinned Enzyme shell.
+- `./scripts/test.sh` builds and runs the root crate's Enzyme-backed tests in
   release mode.
-- The command fails clearly outside the Enzyme shell instead of silently running
-  the wrong compiler.
+- The command fails clearly if the pinned Enzyme toolchain cannot be entered.
 
 ## Milestone 2: First Differentiated Kernel
 
-Add a generalized Rosenbrock scalar-output kernel as the first AD-safe model.
+Add a generalized Rosenbrock scalar-output objective as the first AD-safe model.
 
 Target shape:
 
@@ -84,16 +83,23 @@ fn rosenbrock(x: &[f64], out: &mut f64) {
 
 Tasks:
 
-- Put the kernel in an Enzyme-only test/example target, not the stable core path.
-- Generate the reverse-mode entry point with raw `#[autodiff_reverse]` first.
-- Keep the raw Enzyme ABI local to this test target.
+- Add a `scalar_objective!` macro in `src/objective.rs`.
+- Generate the reverse-mode entry point with raw `#[autodiff_reverse]` inside
+  the macro expansion.
+- Expose `value`, `gradient`, and `value_and_gradient` from the generated
+  objective module.
+- Add the Rosenbrock objective in `tests/objective.rs` through the macro, not
+  through hand-written Enzyme plumbing.
 - Add the analytic Rosenbrock gradient as the correctness oracle.
 
 Acceptance:
 
-- The direct `f64` kernel returns the expected scalar value at `x_i = 0.5`.
+- The generated `value` function returns the expected scalar value at
+  `x_i = 0.5`.
 - Enzyme returns a gradient that matches the analytic gradient to tight
   tolerance.
+- Callers do not see Enzyme activity markers, output buffers, shadow buffers, or
+  the generated derivative symbol.
 - The differentiated call graph uses only slice reads, local scalar mutation,
   fixed loops over input length, and output buffers.
 
@@ -108,7 +114,7 @@ src/
   validation.rs
 ```
 
-Initial API:
+Initial validation API:
 
 ```rust
 pub struct GradientCheck {
@@ -128,7 +134,8 @@ Tasks:
 - Scale perturbations by `max(1, abs(x[i]))`.
 - Return diagnostics instead of only booleans.
 - Add validation helpers for max absolute and relative gradient error.
-- Keep the API independent of Enzyme so it runs on stable Rust.
+- Keep the validation math independent of Enzyme so it can validate any dense
+  gradient source.
 
 Acceptance:
 
@@ -136,11 +143,11 @@ Acceptance:
   handling.
 - The helper catches an intentionally wrong gradient with a useful worst-index
   diagnostic.
-- Normal `./scripts/test.sh` covers these stable utilities.
+- Normal `./scripts/test.sh` covers these utilities.
 
 ## Milestone 4: Metis-Style Gradient Check Harness
 
-Turn the Enzyme smoke test into a reusable check pattern.
+Turn the Rosenbrock API test into a reusable check pattern.
 
 Proposed result type:
 
@@ -217,16 +224,15 @@ Acceptance:
 Expected first files:
 
 - `src/validation.rs`
+- `src/objective.rs`
+- `tests/objective.rs`
 - `tests/validation.rs`
-- `examples/` or `tests/` target for the Enzyme Rosenbrock smoke
 - `nix/dev-shells.nix`
 - `Cargo.toml`
 - `docs/architecture.md`
 
-Do not split Mercury into a workspace until the raw Enzyme path and validation
-harness prove they need isolation. If fat-LTO or nightly configuration starts to
-infect normal development, then introduce a leaf crate for differentiated
-kernels.
+Do not add a separate smoke crate. The root Mercury library is the Enzyme-backed
+library, and `tests/` should prove the public API directly.
 
 ## Phase 1 Slice Exit Criteria
 

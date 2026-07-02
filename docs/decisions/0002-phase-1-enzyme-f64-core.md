@@ -35,16 +35,16 @@ This should make Mercury simpler than Metis in the core:
 
 - The build depends on a pinned nightly Rust toolchain with the matching Enzyme
   plugin.
-- Differentiated kernels are isolated so fat-LTO and nightly constraints do not
-  dominate the whole workspace.
+- The root Mercury crate is Enzyme-first in Phase 1, so the normal dev/test path
+  uses the pinned Enzyme shell and release fat LTO.
 - Mercury needs an AD-safe kernel subset and tests for the LLVM IR patterns
   Enzyme accepts.
 - Value-dependent branches are allowed but remain piecewise operations with
   optimizer-visible derivative policy.
 - The final macro or registration syntax is not promised until it composes with
   `std::autodiff` in a compile test.
-- Existing scaffold APIs such as `Scalar` and `where_` should not be expanded
-  into the Phase 1 core contract.
+- Existing scaffold APIs such as `Scalar` and `where_` are removed instead of
+  becoming the Phase 1 core contract.
 
 ## Phase 1 Non-Goals
 

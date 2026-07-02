@@ -2,8 +2,7 @@
 name = "mercury"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
-description = "Generic differentiable math substrate for pantheon-rs."
+description = "Differentiable math substrate for pantheon-rs."
 license = "MIT"
 repository = "https://github.com/pantheon-rs/mercury"
 readme = "README.md"
@@ -11,18 +10,13 @@ keywords = ["autodiff", "simulation", "math", "aerospace"]
 categories = ["mathematics", "science", "simulation"]
 publish = false
 
-[features]
-default = ["std"]
-std = []
-serde = []
-rayon = []
-native = []
-profile = []
-enzyme = []
-
 [dependencies]
 
 [dev-dependencies]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
 
 [lints.rust]
 unsafe_code = "forbid"

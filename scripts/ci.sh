@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
-enter_nix_if_needed "$@"
+enter_enzyme_nix_if_needed "$@"
 cd_project_root
 ensure_logs_dir
 
@@ -16,7 +16,7 @@ LOG_FILE="logs/ci_${TIMESTAMP}.log"
     echo
 
     ./scripts/format.sh --check
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --release --all-targets --all-features -- -D warnings
     ./scripts/test.sh
     ./scripts/docs.sh
     ./scripts/audit.sh
