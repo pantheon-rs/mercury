@@ -31,10 +31,7 @@ pub fn qr_factor(a: &Matrix) -> Result<QrFactors, LinalgError> {
     let m = a.rows();
     let n = a.cols();
     if m < n {
-        return Err(LinalgError::DimensionMismatch {
-            rows: m,
-            cols: n,
-        });
+        return Err(LinalgError::DimensionMismatch { rows: m, cols: n });
     }
 
     let mut qr = a.clone();

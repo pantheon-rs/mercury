@@ -8,9 +8,7 @@
 
 use crate::core::{Matrix, Perm, Vector};
 
-use super::triangular::{
-    solve_lower, solve_lower_transposed, solve_upper, solve_upper_transposed,
-};
+use super::triangular::{solve_lower, solve_lower_transposed, solve_upper, solve_upper_transposed};
 use super::{LinalgError, PIVOT_TOLERANCE};
 
 /// Reusable LU factors of a square matrix (`P A = L U`).

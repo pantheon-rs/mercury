@@ -36,11 +36,7 @@ fn div_diag(acc: f64, diag: f64, i: usize) -> Result<f64, LinalgError> {
 
 /// Solves `L x = b` by forward substitution, reading only the lower
 /// triangle of `m` (diagonal implied 1 when `unit_diag`).
-pub fn solve_lower(
-    m: &Matrix,
-    b: &Vector,
-    unit_diag: bool,
-) -> Result<Vector, LinalgError> {
+pub fn solve_lower(m: &Matrix, b: &Vector, unit_diag: bool) -> Result<Vector, LinalgError> {
     let n = check_square_system(m, b)?;
     let mut x = Vector::zeros(n);
     for i in 0..n {
@@ -59,11 +55,7 @@ pub fn solve_lower(
 
 /// Solves `U x = b` by backward substitution, reading only the upper
 /// triangle of `m`.
-pub fn solve_upper(
-    m: &Matrix,
-    b: &Vector,
-    unit_diag: bool,
-) -> Result<Vector, LinalgError> {
+pub fn solve_upper(m: &Matrix, b: &Vector, unit_diag: bool) -> Result<Vector, LinalgError> {
     let n = check_square_system(m, b)?;
     let mut x = Vector::zeros(n);
     for i in (0..n).rev() {

@@ -83,7 +83,10 @@ fn only_lower_triangle_is_read() {
     let poisoned = Matrix::from_fn(3, 3, |i, j| if j > i { f64::NAN } else { a[(i, j)] });
     let b = Vector::from_slice(&[1.0, 2.0, 3.0]);
     let x_clean = llt_factor(&a).expect("spd").solve(&b).expect("solve");
-    let x_poisoned = llt_factor(&poisoned).expect("spd").solve(&b).expect("solve");
+    let x_poisoned = llt_factor(&poisoned)
+        .expect("spd")
+        .solve(&b)
+        .expect("solve");
     assert_eq!(x_clean, x_poisoned);
 }
 

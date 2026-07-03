@@ -174,10 +174,7 @@ pub fn solve_fixed<const N: usize>(
 /// propagating through the solves. Callers needing a hard error should
 /// factor host-side with [`llt_factor`](crate::linalg::llt_factor).
 #[must_use]
-pub fn solve_spd_fixed_unchecked<const N: usize>(
-    a: &SMatrix<N, N>,
-    b: &SVector<N>,
-) -> SVector<N> {
+pub fn solve_spd_fixed_unchecked<const N: usize>(a: &SMatrix<N, N>, b: &SVector<N>) -> SVector<N> {
     // Working copy in the Enzyme-safe shape (Global Constraints rules 1-4).
     let mut l = SMatrix::<N, N>::from_fn(|i, j| a[(i, j)]);
 

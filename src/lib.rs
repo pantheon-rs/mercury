@@ -31,7 +31,7 @@ pub use crate::geometry::Quaternion;
 pub mod linalg;
 
 pub use crate::linalg::{
-    Factorization, LinalgError, LdltFactors, LltFactors, LuFactors, QrFactors, SolveGradients,
+    Factorization, LdltFactors, LinalgError, LltFactors, LuFactors, QrFactors, SolveGradients,
     ldlt_factor, llt_factor, lstsq_jvp, lstsq_vjp, lu_factor, qr_factor, solve, solve_fixed,
     solve_fixed_unchecked, solve_jvp, solve_spd_fixed_unchecked, solve_vjp,
 };
