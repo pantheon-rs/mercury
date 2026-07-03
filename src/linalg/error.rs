@@ -17,6 +17,11 @@ pub enum LinalgError {
         /// Columns of the offending operand.
         cols: usize,
     },
+    /// Cholesky factorization hit a non-positive (or breakdown) pivot.
+    NotPositiveDefinite {
+        /// Column where factorization broke down.
+        pivot_index: usize,
+    },
 }
 
 impl fmt::Display for LinalgError {
@@ -27,6 +32,12 @@ impl fmt::Display for LinalgError {
             }
             Self::DimensionMismatch { rows, cols } => {
                 write!(f, "dimension mismatch: operand is {rows}x{cols}")
+            }
+            Self::NotPositiveDefinite { pivot_index } => {
+                write!(
+                    f,
+                    "matrix is not positive definite (breakdown at column {pivot_index})"
+                )
             }
         }
     }
