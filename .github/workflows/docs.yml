@@ -30,8 +30,7 @@ jobs:
   deploy:
     # Publish from main pushes, or manually (Actions tab -> Docs -> Run
     # workflow) from any branch.
-    # phase1 is TEMPORARY until it merges to main — drop it after the merge.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/phase1'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:
