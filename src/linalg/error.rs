@@ -22,6 +22,11 @@ pub enum LinalgError {
         /// Column where factorization broke down.
         pivot_index: usize,
     },
+    /// QR factorization found a (numerically) rank-deficient column.
+    RankDeficient {
+        /// Column whose diagonal of `R` fell below tolerance.
+        column: usize,
+    },
 }
 
 impl fmt::Display for LinalgError {
@@ -38,6 +43,9 @@ impl fmt::Display for LinalgError {
                     f,
                     "matrix is not positive definite (breakdown at column {pivot_index})"
                 )
+            }
+            Self::RankDeficient { column } => {
+                write!(f, "matrix is rank deficient (column {column})")
             }
         }
     }
