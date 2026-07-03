@@ -4,6 +4,7 @@ mod adjoint;
 mod error;
 mod fixed;
 mod lu;
+mod triangular;
 
 pub use adjoint::{SolveGradients, solve_jvp, solve_vjp};
 pub use error::LinalgError;
