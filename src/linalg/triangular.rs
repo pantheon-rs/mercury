@@ -4,12 +4,16 @@
 //! combined-storage matrices (e.g. LU's packed `L\U`, LDLT's unit-lower `l`)
 //! whose other triangle holds unrelated data.
 
+// Temporary: the LU refactor (next commit series) consumes all four
+// solvers; remove this allow with it.
+#![allow(dead_code)]
+
 use crate::core::{Matrix, Vector};
 
 use super::{LinalgError, PIVOT_TOLERANCE};
 
 /// Validates a square system: `m` is `n x n` and `b` has length `n`.
-fn check_square_system(m: &Matrix, b: &Vector) -> Result<usize, LinalgError> {
+const fn check_square_system(m: &Matrix, b: &Vector) -> Result<usize, LinalgError> {
     let n = m.rows();
     if m.cols() != n {
         return Err(LinalgError::DimensionMismatch {
@@ -36,7 +40,7 @@ fn div_diag(acc: f64, diag: f64, i: usize) -> Result<f64, LinalgError> {
 
 /// Solves `L x = b` by forward substitution, reading only the lower
 /// triangle of `m` (diagonal implied 1 when `unit_diag`).
-pub(crate) fn solve_lower(
+pub fn solve_lower(
     m: &Matrix,
     b: &Vector,
     unit_diag: bool,
@@ -59,7 +63,7 @@ pub(crate) fn solve_lower(
 
 /// Solves `U x = b` by backward substitution, reading only the upper
 /// triangle of `m`.
-pub(crate) fn solve_upper(
+pub fn solve_upper(
     m: &Matrix,
     b: &Vector,
     unit_diag: bool,
@@ -82,7 +86,7 @@ pub(crate) fn solve_upper(
 
 /// Solves `Lᵀ x = b` (an upper-triangular system) by backward substitution,
 /// reading only the lower triangle of `m` via transposed indices.
-pub(crate) fn solve_lower_transposed(
+pub fn solve_lower_transposed(
     m: &Matrix,
     b: &Vector,
     unit_diag: bool,
@@ -105,7 +109,7 @@ pub(crate) fn solve_lower_transposed(
 
 /// Solves `Uᵀ x = b` (a lower-triangular system) by forward substitution,
 /// reading only the upper triangle of `m` via transposed indices.
-pub(crate) fn solve_upper_transposed(
+pub fn solve_upper_transposed(
     m: &Matrix,
     b: &Vector,
     unit_diag: bool,
