@@ -7,10 +7,11 @@
 //! - [`core`]: POD-transparent types. Fixed-size (`SVector`, `SMatrix`) are
 //!   kernel-safe; dynamic (`Vector`, `Matrix`) host data outside kernels.
 //! - [`geometry`]: `Quaternion` and rotations (analytic derivatives).
-//! - [`linalg`]: `solve_fixed_unchecked` (kernel-safe, differentiate-through;
-//!   `solve_fixed` is its `Result`-returning host-side wrapper) and the
-//!   dynamic LU `solve` whose derivative is the adjoint rule
-//!   (`solve_vjp`/`solve_jvp`) — never the factorization.
+//! - [`linalg`]: kernel-safe fixed solves (`solve_fixed_unchecked`,
+//!   `solve_spd_fixed_unchecked`) and host-side factorizations (LU, LLT,
+//!   LDLT, QR) behind one [`linalg::Factorization`] adjoint rule
+//!   (`solve_vjp`/`solve_jvp`), plus a dedicated least-squares rule
+//!   (`lstsq_vjp`/`lstsq_jvp`) — never differentiate the factorization.
 //! - [`validation`]: finite-difference oracles for the three-legged test law.
 #![feature(autodiff)]
 #![forbid(unsafe_code)]

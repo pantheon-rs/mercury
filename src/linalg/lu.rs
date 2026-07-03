@@ -120,6 +120,16 @@ impl LuFactors {
         let v = solve_lower_transposed(&self.lu, &w, true)?;
         Ok(self.perm.apply_inverse(&v))
     }
+
+    /// Determinant of the factored matrix: `sign(P) · Π u_ii`.
+    #[must_use]
+    pub fn determinant(&self) -> f64 {
+        let mut det = self.perm.sign();
+        for i in 0..self.dimension() {
+            det *= self.lu[(i, i)];
+        }
+        det
+    }
 }
 
 impl super::Factorization for LuFactors {

@@ -7,6 +7,7 @@ mod factorization;
 mod fixed;
 mod lu;
 mod qr;
+pub mod reductions;
 mod triangular;
 
 pub use adjoint::{SolveGradients, lstsq_jvp, lstsq_vjp, solve_jvp, solve_vjp};

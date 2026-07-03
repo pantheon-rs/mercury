@@ -17,12 +17,12 @@ use super::QrFactors;
 use super::triangular::{solve_upper, solve_upper_transposed};
 use super::{Factorization, LinalgError};
 
-/// Input cotangents produced by [`solve_vjp`].
+/// Input cotangents produced by [`solve_vjp`] and [`lstsq_vjp`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct SolveGradients {
-    /// Cotangent of the matrix: `A_bar = -b_bar x^T`.
+    /// Cotangent of the matrix.
     pub a_bar: Matrix,
-    /// Cotangent of the right-hand side: `b_bar = A^{-T} x_bar`.
+    /// Cotangent of the right-hand side.
     pub b_bar: Vector,
 }
 

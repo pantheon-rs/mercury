@@ -50,6 +50,12 @@ impl Matrix {
         self.cols
     }
 
+    /// Borrows all elements as a row-major slice.
+    #[must_use]
+    pub fn as_slice(&self) -> &[f64] {
+        &self.data
+    }
+
     /// Transposed copy.
     #[must_use]
     pub fn transpose(&self) -> Self {

@@ -82,6 +82,16 @@ impl LltFactors {
         let y = solve_lower(&self.l, b, false)?;
         solve_lower_transposed(&self.l, &y, false)
     }
+
+    /// Determinant of the factored matrix: `Π l_ii²`.
+    #[must_use]
+    pub fn determinant(&self) -> f64 {
+        let mut det = 1.0;
+        for i in 0..self.dimension() {
+            det *= self.l[(i, i)] * self.l[(i, i)];
+        }
+        det
+    }
 }
 
 impl super::Factorization for LltFactors {
