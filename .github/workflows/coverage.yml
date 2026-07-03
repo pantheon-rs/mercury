@@ -16,5 +16,7 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: build/coverage/lcov.info
-          fail_ci_if_error: false
+          # A silent upload failure looks like working coverage — fail loudly.
+          fail_ci_if_error: true
