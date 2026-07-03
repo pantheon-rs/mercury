@@ -6,8 +6,11 @@
 //! differentiate through this code — derivatives come from the adjoint rule
 //! (`solve_vjp`/`solve_jvp`).
 
-use crate::core::{Matrix, Vector};
+use crate::core::{Matrix, Perm, Vector};
 
+use super::triangular::{
+    solve_lower, solve_lower_transposed, solve_upper, solve_upper_transposed,
+};
 use super::{LinalgError, PIVOT_TOLERANCE};
 
 /// Reusable LU factors of a square matrix (`P A = L U`).
@@ -16,7 +19,7 @@ pub struct LuFactors {
     /// Combined L (unit lower, below diagonal) and U (upper) storage.
     lu: Matrix,
     /// `perm[i]` = original row of `A` occupying position `i`.
-    perm: Vec<usize>,
+    perm: Perm,
 }
 
 /// Factors a square matrix with partial pivoting.
@@ -35,7 +38,7 @@ pub fn lu_factor(a: &Matrix) -> Result<LuFactors, LinalgError> {
     }
 
     let mut lu = a.clone();
-    let mut perm: Vec<usize> = (0..n).collect();
+    let mut perm = Perm::identity(n);
 
     for k in 0..n {
         let mut pivot_row = k;
@@ -92,25 +95,9 @@ impl LuFactors {
                 cols: 1,
             });
         }
-
-        // Forward: L y = P b (L unit lower).
-        let mut y = Vector::zeros(n);
-        for i in 0..n {
-            let mut acc = b[self.perm[i]];
-            for j in 0..i {
-                acc -= self.lu[(i, j)] * y[j];
-            }
-            y[i] = acc;
-        }
-        // Backward: U x = y.
-        for i in (0..n).rev() {
-            let mut acc = y[i];
-            for j in (i + 1)..n {
-                acc -= self.lu[(i, j)] * y[j];
-            }
-            y[i] = acc / self.lu[(i, i)];
-        }
-        Ok(y)
+        // L y = P b (L unit lower), then U x = y.
+        let y = solve_lower(&self.lu, &self.perm.apply(b), true)?;
+        solve_upper(&self.lu, &y, false)
     }
 
     /// Solves `A^T z = c` using the same factors
@@ -128,30 +115,10 @@ impl LuFactors {
                 cols: 1,
             });
         }
-
-        // Forward: U^T w = c (U^T lower, non-unit diagonal).
-        let mut w = Vector::zeros(n);
-        for i in 0..n {
-            let mut acc = c[i];
-            for j in 0..i {
-                acc -= self.lu[(j, i)] * w[j];
-            }
-            w[i] = acc / self.lu[(i, i)];
-        }
-        // Backward: L^T v = w (L^T upper, unit diagonal).
-        for i in (0..n).rev() {
-            let mut acc = w[i];
-            for j in (i + 1)..n {
-                acc -= self.lu[(j, i)] * w[j];
-            }
-            w[i] = acc;
-        }
-        // P x = v  =>  x[perm[i]] = v[i].
-        let mut x = Vector::zeros(n);
-        for i in 0..n {
-            x[self.perm[i]] = w[i];
-        }
-        Ok(x)
+        // A^T = U^T L^T P: solve U^T w = c, then L^T v = w, then undo P.
+        let w = solve_upper_transposed(&self.lu, c, false)?;
+        let v = solve_lower_transposed(&self.lu, &w, true)?;
+        Ok(self.perm.apply_inverse(&v))
     }
 }
 

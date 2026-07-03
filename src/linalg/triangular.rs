@@ -4,10 +4,6 @@
 //! combined-storage matrices (e.g. LU's packed `L\U`, LDLT's unit-lower `l`)
 //! whose other triangle holds unrelated data.
 
-// Temporary: the LU refactor (next commit series) consumes all four
-// solvers; remove this allow with it.
-#![allow(dead_code)]
-
 use crate::core::{Matrix, Vector};
 
 use super::{LinalgError, PIVOT_TOLERANCE};
