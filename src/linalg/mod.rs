@@ -9,7 +9,7 @@ mod lu;
 mod qr;
 mod triangular;
 
-pub use adjoint::{SolveGradients, solve_jvp, solve_vjp};
+pub use adjoint::{SolveGradients, lstsq_jvp, lstsq_vjp, solve_jvp, solve_vjp};
 pub use cholesky::{LdltFactors, LltFactors, ldlt_factor, llt_factor};
 pub use error::LinalgError;
 pub use factorization::Factorization;
