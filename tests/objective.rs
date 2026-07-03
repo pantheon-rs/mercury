@@ -1,4 +1,8 @@
 #![feature(autodiff)]
+// The scalar_objective! macro expands to #[autodiff_reverse] code, which is
+// incompatible with coverage instrumentation (Enzyme cannot differentiate
+// atomic profile counters) — this suite is excluded from coverage builds.
+#![cfg(not(coverage))]
 
 //! Enzyme-backed scalar objective API tests.
 

@@ -16,11 +16,13 @@ use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{
     Matrix, SMatrix, SVector, Vector, lu_factor, solve_fixed_unchecked, solve_jvp, solve_vjp,
 };
+#[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
 
 const DIAG_SHIFT: f64 = 5.0;
 
 /// Objective: theta[0..9] -> A = M + 5I, theta[9..12] -> b, f = |x|^2.
+#[cfg(not(coverage))]
 fn objective(theta: &[f64]) -> f64 {
     let a = Matrix::from_fn(3, 3, |i, j| {
         theta[3 * i + j] + if i == j { DIAG_SHIFT } else { 0.0 }
@@ -31,6 +33,9 @@ fn objective(theta: &[f64]) -> f64 {
 }
 
 /// The same objective as an Enzyme kernel through `solve_fixed_unchecked`.
+// Coverage instrumentation injects atomic profile counters that Enzyme
+// cannot differentiate — Enzyme legs are excluded from coverage builds.
+#[cfg(not(coverage))]
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(theta: &[f64], out: &mut f64) {
     let a =
@@ -42,6 +47,7 @@ fn kernel(theta: &[f64], out: &mut f64) {
     *out = x.norm_squared();
 }
 
+#[cfg(not(coverage))]
 fn adjoint_gradient(theta: &[f64]) -> Vec<f64> {
     let a = Matrix::from_fn(3, 3, |i, j| {
         theta[3 * i + j] + if i == j { DIAG_SHIFT } else { 0.0 }
@@ -66,6 +72,7 @@ fn adjoint_gradient(theta: &[f64]) -> Vec<f64> {
 }
 
 #[test]
+#[cfg(not(coverage))]
 fn three_way_gradient_agreement() {
     let theta = [
         0.7, -0.3, 0.2, 0.1, 0.9, -0.4, -0.2, 0.5, 0.6, 1.0, -2.0, 0.5,

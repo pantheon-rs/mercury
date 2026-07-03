@@ -11,6 +11,7 @@
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{SMatrix, SVector};
+#[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
 
 #[test]
@@ -47,6 +48,10 @@ fn matmul_matvec_transpose() {
 // Same kernel as linalg_compat's control/na_fixed_new; analytic gradient:
 // dF/dA = 2 (A B) B^T,  dF/dB = 2 A^T (A B).
 
+// Coverage instrumentation injects atomic profile counters that Enzyme
+// cannot differentiate ("Active atomic inst not yet handled") — the Enzyme
+// legs are excluded from coverage builds and verified by the normal suite.
+#[cfg(not(coverage))]
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(x: &[f64], out: &mut f64) {
     let a = SMatrix::<3, 3>::from_fn(|i, j| x[3 * i + j]);
@@ -61,6 +66,7 @@ fn kernel(x: &[f64], out: &mut f64) {
     *out = acc;
 }
 
+#[cfg(not(coverage))]
 fn kernel_value(x: &[f64]) -> f64 {
     let mut out = 0.0;
     kernel(x, &mut out);
@@ -68,6 +74,7 @@ fn kernel_value(x: &[f64]) -> f64 {
 }
 
 #[test]
+#[cfg(not(coverage))]
 fn enzyme_gradient_matches_fd_and_analytic() {
     let x: Vec<f64> = (0..18).map(|i| 0.3 + 0.1 * f64::from(i)).collect();
     let mut grad = vec![0.0; 18];

@@ -10,6 +10,7 @@
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{LinalgError, SMatrix, SVector, solve_fixed, solve_fixed_unchecked};
+#[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
 
 #[test]
@@ -59,6 +60,10 @@ fn singular_matrix_is_an_error() {
 // instead; `solve_fixed` remains the host-facing, Result-returning API
 // exercised by `solves_known_system` and `singular_matrix_is_an_error`
 // above.
+// Coverage instrumentation injects atomic profile counters that Enzyme
+// cannot differentiate ("Active atomic inst not yet handled") — the Enzyme
+// legs are excluded from coverage builds and verified by the normal suite.
+#[cfg(not(coverage))]
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(x: &[f64], out: &mut f64) {
     let a = SMatrix::<3, 3>::from_fn(|i, j| x[3 * i + j] + if i == j { 5.0 } else { 0.0 });
@@ -67,6 +72,7 @@ fn kernel(x: &[f64], out: &mut f64) {
     *out = s.norm_squared();
 }
 
+#[cfg(not(coverage))]
 fn kernel_value(x: &[f64]) -> f64 {
     let mut out = 0.0;
     kernel(x, &mut out);
@@ -74,6 +80,7 @@ fn kernel_value(x: &[f64]) -> f64 {
 }
 
 #[test]
+#[cfg(not(coverage))]
 fn enzyme_differentiates_through_solve() {
     let x = [
         0.7, -0.3, 0.2, 0.1, 0.9, -0.4, -0.2, 0.5, 0.6, 1.0, -2.0, 0.5,

@@ -10,6 +10,7 @@
 
 use mercury::SVector;
 use mercury::validation::{central_difference_gradient, compare_gradients};
+#[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
 
 #[test]
@@ -51,6 +52,10 @@ fn dot_norm_cross() {
 
 // --- Enzyme leg: differentiate a kernel built from SVector ops ---
 
+// Coverage instrumentation injects atomic profile counters that Enzyme
+// cannot differentiate ("Active atomic inst not yet handled") — the Enzyme
+// legs are excluded from coverage builds and verified by the normal suite.
+#[cfg(not(coverage))]
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(x: &[f64], out: &mut f64) {
     let v = SVector::<3>::from_fn(|i| x[i]);
@@ -59,6 +64,7 @@ fn kernel(x: &[f64], out: &mut f64) {
     *out = v.dot(&w) + c.norm_squared();
 }
 
+#[cfg(not(coverage))]
 fn kernel_value(x: &[f64]) -> f64 {
     let mut out = 0.0;
     kernel(x, &mut out);
@@ -66,6 +72,7 @@ fn kernel_value(x: &[f64]) -> f64 {
 }
 
 #[test]
+#[cfg(not(coverage))]
 fn enzyme_gradient_matches_finite_differences() {
     let x = [0.7, -1.3, 2.1, 0.4, 1.9, -0.6];
     let mut grad = vec![0.0; 6];

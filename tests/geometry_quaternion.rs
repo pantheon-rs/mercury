@@ -4,6 +4,7 @@
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{Quaternion, SVector};
+#[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
 use std::f64::consts::FRAC_PI_2;
 
@@ -47,6 +48,10 @@ fn rotation_and_dcm_agree() {
 // --- Enzyme leg: rotate a vector by a normalized quaternion, sum squares.
 // x[0..4] = raw quaternion (normalized in-kernel), x[4..7] = vector.
 
+// Coverage instrumentation injects atomic profile counters that Enzyme
+// cannot differentiate ("Active atomic inst not yet handled") — the Enzyme
+// legs are excluded from coverage builds and verified by the normal suite.
+#[cfg(not(coverage))]
 #[autodiff_reverse(d_kernel, Duplicated, Duplicated)]
 fn kernel(x: &[f64], out: &mut f64) {
     let q = Quaternion::new(x[0], x[1], x[2], x[3]).normalized();
@@ -55,6 +60,7 @@ fn kernel(x: &[f64], out: &mut f64) {
     *out = r.norm_squared() + r[0] * r[1];
 }
 
+#[cfg(not(coverage))]
 fn kernel_value(x: &[f64]) -> f64 {
     let mut out = 0.0;
     kernel(x, &mut out);
@@ -62,6 +68,7 @@ fn kernel_value(x: &[f64]) -> f64 {
 }
 
 #[test]
+#[cfg(not(coverage))]
 fn enzyme_gradient_matches_finite_differences() {
     let x = [0.9, 0.2, -0.3, 0.1, 0.5, -1.1, 0.8];
     let mut grad = vec![0.0; 7];
