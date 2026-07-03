@@ -12,7 +12,7 @@ pub use adjoint::{SolveGradients, solve_jvp, solve_vjp};
 pub use cholesky::{LdltFactors, LltFactors, ldlt_factor, llt_factor};
 pub use error::LinalgError;
 pub use factorization::Factorization;
-pub use fixed::{solve_fixed, solve_fixed_unchecked};
+pub use fixed::{solve_fixed, solve_fixed_unchecked, solve_spd_fixed_unchecked};
 pub use lu::{LuFactors, lu_factor, solve};
 
 /// Pivot magnitudes below this are treated as singular.

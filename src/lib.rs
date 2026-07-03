@@ -31,7 +31,8 @@ pub mod linalg;
 
 pub use crate::linalg::{
     Factorization, LinalgError, LdltFactors, LltFactors, LuFactors, SolveGradients, ldlt_factor,
-    llt_factor, lu_factor, solve, solve_fixed, solve_fixed_unchecked, solve_jvp, solve_vjp,
+    llt_factor, lu_factor, solve, solve_fixed, solve_fixed_unchecked, solve_jvp,
+    solve_spd_fixed_unchecked, solve_vjp,
 };
 
 pub mod validation;

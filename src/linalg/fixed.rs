@@ -160,3 +160,60 @@ pub fn solve_fixed<const N: usize>(
 
     Ok(y)
 }
+
+/// Solves SPD `A x = b` for small fixed-size systems on the stack via
+/// unpivoted Cholesky (LLT), without a definiteness check.
+///
+/// Kernel-facing (same contract family as [`solve_fixed_unchecked`]): no
+/// `Result` return, written in the Enzyme-safe POD style. Cheaper than the
+/// LU kernel path for SPD systems — no pivot search. Reads only the lower
+/// triangle of `a`; symmetry is the caller's contract.
+///
+/// If `A` is not positive definite, the factorization takes the square
+/// root of a non-positive number and the affected outputs become `NaN`,
+/// propagating through the solves. Callers needing a hard error should
+/// factor host-side with [`llt_factor`](crate::linalg::llt_factor).
+#[must_use]
+pub fn solve_spd_fixed_unchecked<const N: usize>(
+    a: &SMatrix<N, N>,
+    b: &SVector<N>,
+) -> SVector<N> {
+    // Working copy in the Enzyme-safe shape (Global Constraints rules 1-4).
+    let mut l = SMatrix::<N, N>::from_fn(|i, j| a[(i, j)]);
+
+    // In-place LLT on the lower triangle.
+    for j in 0..N {
+        let mut sum = l[(j, j)];
+        for k in 0..j {
+            sum -= l[(j, k)] * l[(j, k)];
+        }
+        let ljj = sum.sqrt(); // non-SPD => NaN, propagated by design
+        l[(j, j)] = ljj;
+        for i in (j + 1)..N {
+            let mut s = l[(i, j)];
+            for k in 0..j {
+                s -= l[(i, k)] * l[(j, k)];
+            }
+            l[(i, j)] = s / ljj;
+        }
+    }
+
+    // Forward: L y = b.
+    let mut y = SVector::<N>::from_fn(|i| b[i]);
+    for i in 0..N {
+        let mut acc = y[i];
+        for j in 0..i {
+            acc -= l[(i, j)] * y[j];
+        }
+        y[i] = acc / l[(i, i)];
+    }
+    // Backward: Lᵀ x = y, in place over y.
+    for i in (0..N).rev() {
+        let mut acc = y[i];
+        for j in (i + 1)..N {
+            acc -= l[(j, i)] * y[j];
+        }
+        y[i] = acc / l[(i, i)];
+    }
+    y
+}
