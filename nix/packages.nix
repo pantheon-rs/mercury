@@ -14,6 +14,10 @@ let
     version = cargoToml.package.version;
     src = filteredSrc;
     strictDeps = true;
+    # Enzyme's derivative pass: mandatory for compiling #[autodiff_reverse]
+    # code. Fat LTO comes from Cargo.toml's release profile; crane builds
+    # release by default.
+    RUSTFLAGS = "-Zautodiff=Enable";
   };
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;

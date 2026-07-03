@@ -38,4 +38,18 @@ in
       cargoDocExtraArgs = "--no-deps --all-features";
     }
   );
+
+  # Build every example and run the Phase 2 demo end-to-end (metis parity:
+  # examples are part of CI, not decoration).
+  examples = craneLib.mkCargoDerivation (
+    withArtifacts
+    // {
+      pnameSuffix = "-examples";
+      buildPhaseCargoCommand = ''
+        cargo build --release --locked --examples
+        cargo run --release --locked --example solve_gradient
+      '';
+      doCheck = false;
+    }
+  );
 }
