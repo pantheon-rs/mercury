@@ -29,14 +29,21 @@ pub struct SolveGradients {
 ///
 /// # Errors
 ///
-/// Propagates dimension errors from the transposed solve.
+/// [`LinalgError::DimensionMismatch`] when `x` disagrees with the factors;
+/// propagates dimension errors from the transposed solve.
 pub fn solve_vjp(
     factors: &LuFactors,
     x: &Vector,
     x_bar: &Vector,
 ) -> Result<SolveGradients, LinalgError> {
-    let b_bar = factors.solve_transposed(x_bar)?;
     let n = factors.dimension();
+    if x.len() != n {
+        return Err(LinalgError::DimensionMismatch {
+            rows: x.len(),
+            cols: 1,
+        });
+    }
+    let b_bar = factors.solve_transposed(x_bar)?;
     let a_bar = Matrix::from_fn(n, n, |i, j| -b_bar[i] * x[j]);
     Ok(SolveGradients { a_bar, b_bar })
 }

@@ -21,7 +21,10 @@
       crane,
       rust-overlay,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    # Restricted to the one system the pinned Enzyme artifact exists for
+    # (nix/rust-toolchain.nix fetches a prebuilt x86_64-linux libEnzyme; other
+    # systems would get a toolchain with a broken sysroot).
+    flake-utils.lib.eachSystem [ "x86_64-linux" ] (
       system:
       let
         pkgs = import nixpkgs {

@@ -56,3 +56,11 @@ fn matvec_dimension_mismatch_panics() {
     let v = Vector::zeros(2);
     let _ = &a * &v;
 }
+
+#[test]
+#[should_panic(expected = "matrix index out of bounds")]
+fn matrix_column_overflow_does_not_wrap_to_next_row() {
+    let a = Matrix::from_fn(2, 3, |i, j| (3 * i + j) as f64);
+    // (0, 3) flattens to the same offset as (1, 0) — must panic, not read 3.0.
+    let _ = a[(0, 3)];
+}

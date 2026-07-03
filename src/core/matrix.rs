@@ -59,13 +59,31 @@ impl Matrix {
 
 impl Index<(usize, usize)> for Matrix {
     type Output = f64;
+    /// # Panics
+    /// When `i >= rows` or `j >= cols` — checked per axis, so an
+    /// out-of-range column cannot silently read the next row.
     fn index(&self, (i, j): (usize, usize)) -> &f64 {
+        assert!(
+            i < self.rows && j < self.cols,
+            "matrix index out of bounds: ({i}, {j}) on {}x{}",
+            self.rows,
+            self.cols
+        );
         &self.data[i * self.cols + j]
     }
 }
 
 impl IndexMut<(usize, usize)> for Matrix {
+    /// # Panics
+    /// When `i >= rows` or `j >= cols` — checked per axis, so an
+    /// out-of-range column cannot silently write the next row.
     fn index_mut(&mut self, (i, j): (usize, usize)) -> &mut f64 {
+        assert!(
+            i < self.rows && j < self.cols,
+            "matrix index out of bounds: ({i}, {j}) on {}x{}",
+            self.rows,
+            self.cols
+        );
         let cols = self.cols;
         &mut self.data[i * cols + j]
     }

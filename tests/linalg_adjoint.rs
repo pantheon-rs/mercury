@@ -153,7 +153,12 @@ fn vjp_dimension_mismatch_errors() {
     let f = lu_factor(&a).expect("wc");
     let x = Vector::zeros(3);
     let bad = Vector::zeros(2);
+    // mismatched x_bar
     assert!(solve_vjp(&f, &x, &bad).is_err());
+    // mismatched x (both too short and too long)
+    let x_bar = Vector::zeros(3);
+    assert!(solve_vjp(&f, &bad, &x_bar).is_err());
+    assert!(solve_vjp(&f, &Vector::zeros(4), &x_bar).is_err());
 }
 
 #[test]
