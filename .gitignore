@@ -9,3 +9,6 @@ flamegraph.svg
 perf.data*
 .superpowers/
 result
+
+# Vendored reference checkouts (e.g. faer) — study material, never committed
+/ref/
