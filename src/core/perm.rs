@@ -40,6 +40,11 @@ impl Perm {
     /// # Panics
     /// When `i` or `j` is out of range.
     pub fn swap(&mut self, i: usize, j: usize) {
+        let n = self.perm.len();
+        assert!(
+            i < n && j < n,
+            "index out of range in Perm::swap: ({i}, {j}) on length {n}"
+        );
         if i != j {
             self.perm.swap(i, j);
             self.odd = !self.odd;

@@ -47,3 +47,11 @@ fn apply_panics_on_length_mismatch() {
     let v = Vector::zeros(2);
     let _ = p.apply(&v);
 }
+
+#[test]
+#[should_panic(expected = "index out of range in Perm::swap")]
+fn swap_panics_on_out_of_range_even_when_equal() {
+    let mut p = Perm::identity(3);
+    // Equal indices must not bypass the range check.
+    p.swap(5, 5);
+}
