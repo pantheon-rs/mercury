@@ -117,3 +117,66 @@ fn dimension_errors() {
     assert!(f.solve_lstsq(&b3).is_err());
     assert!(f.q_transpose_apply(&b3).is_err());
 }
+
+#[test]
+fn rows_and_cols_accessors_report_factored_shape() {
+    let f = qr_factor(&tall_a()).expect("qr");
+    assert_eq!(f.rows(), 4);
+    assert_eq!(f.cols(), 2);
+
+    let square = Matrix::from_fn(3, 3, |i, j| if i == j { 1.0 + i as f64 } else { 0.1 });
+    let fs = qr_factor(&square).expect("qr");
+    assert_eq!(fs.rows(), 3);
+    assert_eq!(fs.cols(), 3);
+}
+
+#[test]
+fn square_rank_deficient_errors() {
+    // First column entirely zero: breakdown at column 0. Distinct from the
+    // tall (m > n) rank-deficient case above, where the failing column
+    // isn't the first one and m != n.
+    let a = Matrix::from_fn(2, 2, |_, j| if j == 0 { 0.0 } else { 1.0 });
+    assert_eq!(
+        qr_factor(&a).map(|_| ()),
+        Err(LinalgError::RankDeficient { column: 0 })
+    );
+}
+
+#[test]
+fn single_column_tall_matrix_solves_lstsq() {
+    // n = 1: least squares reduces to the projection x = (aᵀb)/(aᵀa).
+    let a = Matrix::from_fn(3, 1, |i, _| (i + 1) as f64); // [1, 2, 3]^T
+    let b = Vector::from_slice(&[2.0, 4.0, 5.0]);
+    let x = qr_factor(&a).expect("qr").solve_lstsq(&b).expect("lstsq");
+
+    let mut ata = 0.0;
+    let mut atb = 0.0;
+    for i in 0..3 {
+        ata += a[(i, 0)] * a[(i, 0)];
+        atb += a[(i, 0)] * b[i];
+    }
+    assert!((x[0] - atb / ata).abs() < 1e-9);
+}
+
+#[test]
+fn lstsq_solution_minimizes_residual_norm() {
+    // Optimality check: any perturbation away from the least-squares
+    // solution must not decrease the residual norm (property-based, no
+    // hand-computed closed form needed beyond the perturbation itself).
+    let a = tall_a();
+    let b = Vector::from_slice(&[2.1, 3.9, 6.2, 7.8]);
+    let x = qr_factor(&a).expect("qr").solve_lstsq(&b).expect("lstsq");
+    let residual_at = |candidate: &Vector| -> f64 {
+        let ax = &a * candidate;
+        let r = &b - &ax;
+        r.norm_squared()
+    };
+    let baseline = residual_at(&x);
+    for (di, dj) in [(0.1, 0.0), (0.0, 0.1), (-0.05, 0.2), (0.3, -0.3)] {
+        let perturbed = Vector::from_slice(&[x[0] + di, x[1] + dj]);
+        assert!(
+            residual_at(&perturbed) >= baseline - 1e-12,
+            "perturbation ({di},{dj}) decreased residual below optimum"
+        );
+    }
+}

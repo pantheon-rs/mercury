@@ -210,4 +210,95 @@ mod tests {
         let short = Vector::zeros(1);
         assert!(solve_upper(&sq, &short, false).is_err());
     }
+
+    #[test]
+    fn solve_upper_unit_ignores_diagonal() {
+        // Unit diagonal: x1 = 8; x0 + 1*x1 = 8 => x0 = 0. Diagonal values
+        // 2 and 4 must be ignored.
+        let b = Vector::from_slice(&[8.0, 8.0]);
+        let x = solve_upper(&upper(), &b, true).expect("solve");
+        assert!((x[1] - 8.0).abs() < 1e-14);
+        assert!((x[0] - 0.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn solve_lower_transposed_unit_diag() {
+        // Unit-diagonal Lᵀ = [[1, 1], [0, 1]]: x1 = 6; x0 + x1 = 8 => x0 = 2.
+        let b = Vector::from_slice(&[8.0, 6.0]);
+        let x = solve_lower_transposed(&lower(), &b, true).expect("solve");
+        assert!((x[0] - 2.0).abs() < 1e-14);
+        assert!((x[1] - 6.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn solve_upper_transposed_unit_diag() {
+        // Unit-diagonal Uᵀ = [[1, 0], [1, 1]]: x0 = 4; x0 + x1 = 10 => x1 = 6.
+        let b = Vector::from_slice(&[4.0, 10.0]);
+        let x = solve_upper_transposed(&upper(), &b, true).expect("solve");
+        assert!((x[0] - 4.0).abs() < 1e-14);
+        assert!((x[1] - 6.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn zero_diagonal_errors_singular_for_every_variant() {
+        // Only solve_lower's error path is exercised above; check the other
+        // three non-unit-diag variants also surface Singular, each at the
+        // pivot where the zero diagonal is first read.
+        let m = Matrix::from_fn(2, 2, |_, _| 0.0);
+        let b = Vector::zeros(2);
+        assert_eq!(
+            solve_upper(&m, &b, false),
+            Err(LinalgError::Singular { pivot_index: 1 })
+        );
+        assert_eq!(
+            solve_lower_transposed(&m, &b, false),
+            Err(LinalgError::Singular { pivot_index: 1 })
+        );
+        assert_eq!(
+            solve_upper_transposed(&m, &b, false),
+            Err(LinalgError::Singular { pivot_index: 0 })
+        );
+    }
+
+    #[test]
+    fn pivot_at_tolerance_boundary() {
+        // |diag| == PIVOT_TOLERANCE is NOT below tolerance, so this must
+        // still succeed (the check is strict `<`).
+        let m = Matrix::from_fn(2, 2, |i, j| match (i, j) {
+            (0, 0) => PIVOT_TOLERANCE,
+            (1, 0) => 0.0,
+            (1, 1) => 1.0,
+            _ => f64::NAN,
+        });
+        let b = Vector::from_slice(&[PIVOT_TOLERANCE, 2.0]);
+        let x = solve_lower(&m, &b, false).expect("boundary pivot should solve");
+        assert!((x[0] - 1.0).abs() < 1e-6);
+        assert!((x[1] - 2.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn three_by_three_round_trip_matches_forward_and_back() {
+        // A slightly larger system exercises the inner accumulation loops
+        // (j in 0..i / i+1..n) beyond the 2x2 minimal cases above.
+        let l = Matrix::from_fn(3, 3, |i, j| match (i, j) {
+            (0, 0) => 2.0,
+            (1, 0) => 1.0,
+            (1, 1) => 3.0,
+            (2, 0) => -1.0,
+            (2, 1) => 0.5,
+            (2, 2) => 4.0,
+            _ => f64::NAN, // poison strict upper triangle
+        });
+        let b = Vector::from_slice(&[4.0, 11.0, 9.0]);
+        let x = solve_lower(&l, &b, false).expect("solve");
+        // Reconstruct L x and compare against b directly (no hand-solved
+        // closed form needed).
+        for i in 0..3 {
+            let mut acc = 0.0;
+            for j in 0..=i {
+                acc += l[(i, j)] * x[j];
+            }
+            assert!((acc - b[i]).abs() < 1e-12, "row {i}: {acc} vs {}", b[i]);
+        }
+    }
 }

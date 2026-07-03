@@ -13,7 +13,7 @@
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{
     LinalgError, Matrix, SMatrix, SVector, Vector, ldlt_factor, llt_factor, lu_factor,
-    solve_fixed_unchecked, solve_vjp,
+    solve_fixed_unchecked, solve_jvp, solve_vjp,
 };
 #[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
@@ -107,6 +107,80 @@ fn dimension_mismatches_error() {
     let a = Matrix::from_fn(2, 2, |i, j| [[4.0, 2.0], [2.0, 3.0]][i][j]);
     let f = llt_factor(&a).expect("spd");
     assert!(f.solve(&Vector::zeros(3)).is_err());
+}
+
+#[test]
+fn llt_dimension_accessor_matches_input_size() {
+    let a = spd_from(&THETA);
+    let f = llt_factor(&a).expect("spd");
+    assert_eq!(f.dimension(), 3);
+}
+
+#[test]
+fn llt_pivot_at_tolerance_boundary_succeeds() {
+    // sum == 1e-12 hits the `sum <= PIVOT_TOLERANCE` boundary exactly:
+    // this is a breakdown (non-strict comparison), so it must error, not
+    // silently take sqrt of a near-zero value.
+    let a = Matrix::from_fn(1, 1, |_, _| 1.0e-12);
+    assert_eq!(
+        llt_factor(&a).map(|_| ()),
+        Err(LinalgError::NotPositiveDefinite { pivot_index: 0 })
+    );
+    // Comfortably above tolerance succeeds.
+    let ok = Matrix::from_fn(1, 1, |_, _| 1.0e-6);
+    assert!(llt_factor(&ok).is_ok());
+}
+
+#[test]
+fn llt_jvp_matches_directional_finite_difference() {
+    let a = spd_from(&THETA);
+    let b = Vector::from_slice(&THETA[9..12]);
+    let f = llt_factor(&a).expect("spd");
+    let x = f.solve(&b).expect("solve");
+
+    let a_dot = Matrix::from_fn(3, 3, |i, j| 0.05 * ((i + 2 * j) as f64) - 0.1);
+    let b_dot = Vector::from_slice(&[0.2, -0.1, 0.05]);
+    let x_dot = solve_jvp(&f, &x, &a_dot, &b_dot).expect("jvp");
+
+    let h = 1.0e-7;
+    let a_p = Matrix::from_fn(3, 3, |i, j| a[(i, j)] + h * a_dot[(i, j)]);
+    let a_m = Matrix::from_fn(3, 3, |i, j| a[(i, j)] - h * a_dot[(i, j)]);
+    let mut bp = Vec::new();
+    let mut bm = Vec::new();
+    for i in 0..3 {
+        bp.push(b[i] + h * b_dot[i]);
+        bm.push(b[i] - h * b_dot[i]);
+    }
+    // Perturbed A stays SPD for this small h (diagonal shift dominates).
+    let x_p = llt_factor(&a_p)
+        .expect("spd")
+        .solve(&Vector::from_vec(bp))
+        .expect("solve");
+    let x_m = llt_factor(&a_m)
+        .expect("spd")
+        .solve(&Vector::from_vec(bm))
+        .expect("solve");
+    for i in 0..3 {
+        let fd_i = (x_p[i] - x_m[i]) / (2.0 * h);
+        assert!(
+            (x_dot[i] - fd_i).abs() < 1.0e-5,
+            "component {i}: jvp={} fd={fd_i}",
+            x_dot[i]
+        );
+    }
+}
+
+#[test]
+fn llt_solve_transposed_equals_solve() {
+    // A is symmetric, so Factorization::solve_transposed must be
+    // byte-for-byte the same computation as solve.
+    use mercury::Factorization;
+    let a = spd_from(&THETA);
+    let b = Vector::from_slice(&THETA[9..12]);
+    let f = llt_factor(&a).expect("spd");
+    let x = Factorization::solve(&f, &b).expect("solve");
+    let xt = f.solve_transposed(&b).expect("solve_transposed");
+    assert_eq!(x, xt);
 }
 
 /// Objective: theta[0..9] -> symmetrized SPD A, theta[9..12] -> b, f = |x|^2.
@@ -206,6 +280,27 @@ fn ldlt_breakdown_errors() {
         ldlt_factor(&a).map(|_| ()),
         Err(LinalgError::NotPositiveDefinite { pivot_index: 1 })
     );
+}
+
+#[test]
+fn ldlt_dimension_mismatches_error() {
+    let rect = Matrix::zeros(2, 3);
+    assert!(ldlt_factor(&rect).is_err());
+    let a = Matrix::from_fn(2, 2, |i, j| [[4.0, 2.0], [2.0, 3.0]][i][j]);
+    let f = ldlt_factor(&a).expect("factor");
+    assert_eq!(f.dimension(), 2);
+    assert!(f.solve(&Vector::zeros(3)).is_err());
+}
+
+#[test]
+fn ldlt_solve_transposed_equals_solve() {
+    use mercury::Factorization;
+    let a = spd_from(&THETA);
+    let b = Vector::from_slice(&THETA[9..12]);
+    let f = ldlt_factor(&a).expect("factor");
+    let x = Factorization::solve(&f, &b).expect("solve");
+    let xt = f.solve_transposed(&b).expect("solve_transposed");
+    assert_eq!(x, xt);
 }
 
 #[test]

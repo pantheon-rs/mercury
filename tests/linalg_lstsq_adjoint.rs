@@ -14,7 +14,8 @@
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{
-    Matrix, SMatrix, SVector, Vector, lstsq_jvp, lstsq_vjp, qr_factor, solve_spd_fixed_unchecked,
+    Matrix, SMatrix, SVector, Vector, lstsq_jvp, lstsq_vjp, lu_factor, qr_factor, solve_jvp,
+    solve_spd_fixed_unchecked, solve_vjp,
 };
 #[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
@@ -157,4 +158,77 @@ fn lstsq_vjp_dimension_mismatches_error() {
     assert!(lstsq_vjp(&f, &a, &Vector::zeros(4), &x, &x_bar).is_err());
     // wrong a shape
     assert!(lstsq_vjp(&f, &Matrix::zeros(5, 2), &b, &x, &x_bar).is_err());
+}
+
+#[test]
+fn lstsq_jvp_dimension_mismatches_error() {
+    let a = a_from(&THETA);
+    let b = b_from(&THETA);
+    let f = qr_factor(&a).expect("qr");
+    let x = f.solve_lstsq(&b).expect("lstsq");
+    let a_dot = Matrix::from_fn(5, 3, |_, _| 0.0);
+    let b_dot = Vector::zeros(5);
+    // wrong a shape
+    assert!(lstsq_jvp(&f, &Matrix::zeros(5, 2), &b, &x, &a_dot, &b_dot).is_err());
+    // wrong b length
+    assert!(lstsq_jvp(&f, &a, &Vector::zeros(4), &x, &a_dot, &b_dot).is_err());
+    // wrong x length
+    assert!(lstsq_jvp(&f, &a, &b, &Vector::zeros(2), &a_dot, &b_dot).is_err());
+    // wrong a_dot shape
+    assert!(lstsq_jvp(&f, &a, &b, &x, &Matrix::zeros(5, 2), &b_dot).is_err());
+    // wrong b_dot length
+    assert!(lstsq_jvp(&f, &a, &b, &x, &a_dot, &Vector::zeros(4)).is_err());
+}
+
+#[test]
+fn lstsq_adjoint_agrees_with_solve_adjoint_when_square() {
+    // For a square, full-rank system, QR least squares reduces to an exact
+    // solve (zero residual), so the dedicated least-squares adjoint rule
+    // must agree with the plain solve adjoint rule computed via LU — an
+    // independent cross-check between the two adjoint implementations.
+    let a = Matrix::from_fn(3, 3, |i, j| {
+        [[3.0, 0.4, -0.2], [0.1, 2.5, 0.3], [-0.3, 0.2, 4.0]][i][j]
+    });
+    let b = Vector::from_slice(&[1.0, -2.0, 0.5]);
+
+    let qr = qr_factor(&a).expect("qr");
+    let x_qr = qr.solve_lstsq(&b).expect("lstsq");
+    let lu = lu_factor(&a).expect("lu");
+    let x_lu = lu.solve(&b).expect("solve");
+    for i in 0..3 {
+        assert!((x_qr[i] - x_lu[i]).abs() < 1e-10, "component {i}");
+    }
+
+    let x_bar = Vector::from_slice(&[0.5, -1.0, 2.0]);
+    let lstsq_grads = lstsq_vjp(&qr, &a, &b, &x_qr, &x_bar).expect("lstsq vjp");
+    let solve_grads = solve_vjp(&lu, &x_lu, &x_bar).expect("solve vjp");
+    for i in 0..3 {
+        assert!(
+            (lstsq_grads.b_bar[i] - solve_grads.b_bar[i]).abs() < 1e-8,
+            "b_bar[{i}]: lstsq={} solve={}",
+            lstsq_grads.b_bar[i],
+            solve_grads.b_bar[i]
+        );
+        for j in 0..3 {
+            assert!(
+                (lstsq_grads.a_bar[(i, j)] - solve_grads.a_bar[(i, j)]).abs() < 1e-8,
+                "a_bar[{i},{j}]: lstsq={} solve={}",
+                lstsq_grads.a_bar[(i, j)],
+                solve_grads.a_bar[(i, j)]
+            );
+        }
+    }
+
+    let a_dot = Matrix::from_fn(3, 3, |i, j| 0.1 * (i as f64) - 0.05 * (j as f64));
+    let b_dot = Vector::from_slice(&[0.2, -0.1, 0.3]);
+    let x_dot_lstsq = lstsq_jvp(&qr, &a, &b, &x_qr, &a_dot, &b_dot).expect("lstsq jvp");
+    let x_dot_solve = solve_jvp(&lu, &x_lu, &a_dot, &b_dot).expect("solve jvp");
+    for i in 0..3 {
+        assert!(
+            (x_dot_lstsq[i] - x_dot_solve[i]).abs() < 1e-8,
+            "x_dot[{i}]: lstsq={} solve={}",
+            x_dot_lstsq[i],
+            x_dot_solve[i]
+        );
+    }
 }
