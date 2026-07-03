@@ -8,4 +8,15 @@ cd_project_root
 
 ./scripts/ci.sh
 cargo package --allow-dirty
-cargo semver-checks check-release || true
+
+# Semver-check the public API against the merge baseline, NOT crates.io:
+# the bare `mercury` name on crates.io is an unrelated crate (this one is
+# publish = false), so the default registry baseline is meaningless.
+BASELINE="${MERCURY_SEMVER_BASELINE:-origin/main}"
+if git rev-parse --verify --quiet "$BASELINE" >/dev/null; then
+    cargo semver-checks check-release --baseline-rev "$BASELINE"
+else
+    echo "WARNING: baseline $BASELINE not found; skipping semver-checks"
+fi
+
+./scripts/check-version-bump.sh

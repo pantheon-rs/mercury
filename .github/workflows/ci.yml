@@ -15,3 +15,15 @@ jobs:
       # pinned nightly+Enzyme toolchain (nix/rust-toolchain.nix).
       - name: Flake checks
         run: nix flake check --print-build-logs
+
+  # Merges into main must carry a version bump (Cargo.toml is the single
+  # source of truth; nix reads it at eval time; Cargo.lock must agree).
+  version-bump:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check version bump vs base branch
+        run: ./scripts/check-version-bump.sh "origin/${{ github.base_ref }}"
