@@ -135,11 +135,13 @@ strategy Metis followed.
 
 | Phase       | Contents                                        | Why this order                                                             |
 | ----------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| 1 (current) | `ad/`: macro, gradient, jvp/vjp, FD validation  | The engine room — everything else validates against it                     |
+| 1           | `ad/`: macro, gradient, jvp/vjp, FD validation  | The engine room — everything else validates against it                     |
 | 2           | `core/` types + `linalg/` solve; `geometry/`    | Types are the vocabulary; quaternions are cheap analytic wins              |
-| 3           | `interp/` 1D → N-D gridded                      | The aerospace workhorse; first real test of the kink-policy discipline     |
-| 4           | `roots/` (IFT) + `integrate/` (RK)              | First *composed* rules — consume Enzyme-on-residuals plus linalg solves    |
-| 5           | NLP interface, solver backend, transcriptions   | Consumes the derivative-contract callback shapes                           |
+| 3 (current) | decomposition suite: Cholesky (LLT/LDLT), QR    | Mines faer's layout for an Enzyme-compatible factorization substrate       |
+| 4 (planned) | SVD / EVD / GEVD                                | faer's heaviest machinery; derivative rules complicated by degeneracy      |
+| 5           | `interp/` 1D → N-D gridded                      | The aerospace workhorse; first real test of the kink-policy discipline     |
+| 6           | `roots/` (IFT) + `integrate/` (RK)              | First *composed* rules — consume Enzyme-on-residuals plus linalg solves    |
+| 7           | NLP interface, solver backend, transcriptions   | Consumes the derivative-contract callback shapes                           |
 
 Each phase gets its own decision record and implementation plan under
 `docs/decisions/` and `docs/implementation-plans/`.
