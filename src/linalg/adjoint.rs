@@ -7,12 +7,12 @@
 //! - forward (JVP), given input tangents `(A_dot, b_dot)`:
 //!   `x_dot = A^{-1} (b_dot - A_dot x)`
 //!
-//! Both reuse the primal [`LuFactors`] — no factorization is ever
+//! Both reuse the primal [`Factorization`] — no factorization is ever
 //! differentiated, and the factorization backend can change freely.
 
 use crate::core::{Matrix, Vector};
 
-use super::{LinalgError, LuFactors};
+use super::{Factorization, LinalgError};
 
 /// Input cotangents produced by [`solve_vjp`].
 #[derive(Debug, Clone, PartialEq)]
@@ -31,8 +31,8 @@ pub struct SolveGradients {
 ///
 /// [`LinalgError::DimensionMismatch`] when `x` disagrees with the factors;
 /// propagates dimension errors from the transposed solve.
-pub fn solve_vjp(
-    factors: &LuFactors,
+pub fn solve_vjp<F: Factorization>(
+    factors: &F,
     x: &Vector,
     x_bar: &Vector,
 ) -> Result<SolveGradients, LinalgError> {
@@ -56,8 +56,8 @@ pub fn solve_vjp(
 ///
 /// [`LinalgError::DimensionMismatch`] when tangent shapes disagree with the
 /// factors; propagates solve errors.
-pub fn solve_jvp(
-    factors: &LuFactors,
+pub fn solve_jvp<F: Factorization>(
+    factors: &F,
     x: &Vector,
     a_dot: &Matrix,
     b_dot: &Vector,

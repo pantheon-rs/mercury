@@ -122,6 +122,20 @@ impl LuFactors {
     }
 }
 
+impl super::Factorization for LuFactors {
+    fn dimension(&self) -> usize {
+        Self::dimension(self)
+    }
+
+    fn solve(&self, b: &Vector) -> Result<Vector, LinalgError> {
+        Self::solve(self, b)
+    }
+
+    fn solve_transposed(&self, b: &Vector) -> Result<Vector, LinalgError> {
+        Self::solve_transposed(self, b)
+    }
+}
+
 /// Convenience: factor + solve in one call.
 ///
 /// # Errors
