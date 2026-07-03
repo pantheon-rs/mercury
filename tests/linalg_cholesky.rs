@@ -12,8 +12,8 @@
 
 use mercury::validation::{central_difference_gradient, compare_gradients};
 use mercury::{
-    LinalgError, Matrix, SMatrix, SVector, Vector, llt_factor, lu_factor, solve_fixed_unchecked,
-    solve_vjp,
+    LinalgError, Matrix, SMatrix, SVector, Vector, ldlt_factor, llt_factor, lu_factor,
+    solve_fixed_unchecked, solve_vjp,
 };
 #[cfg(not(coverage))]
 use std::autodiff::autodiff_reverse;
@@ -166,5 +166,77 @@ fn three_way_gradient_agreement_llt() {
     assert!(
         adjoint_vs_fd.max_abs_error < 1.0e-4,
         "LLT adjoint vs fd: {adjoint_vs_fd:?}"
+    );
+}
+
+#[test]
+fn ldlt_known_solution_2x2() {
+    // A = [[4, 2], [2, 3]]: d = [4, 2], l10 = 0.5.
+    let a = Matrix::from_fn(2, 2, |i, j| [[4.0, 2.0], [2.0, 3.0]][i][j]);
+    let f = ldlt_factor(&a).expect("factor");
+    assert!((f.d()[0] - 4.0).abs() < 1e-14);
+    assert!((f.d()[1] - 2.0).abs() < 1e-14);
+    assert!((f.l()[(1, 0)] - 0.5).abs() < 1e-14);
+    let b = Vector::from_slice(&[8.0, 7.0]);
+    let x = f.solve(&b).expect("solve");
+    assert!((x[0] - 1.25).abs() < 1e-14);
+    assert!((x[1] - 1.5).abs() < 1e-14);
+}
+
+#[test]
+fn ldlt_handles_indefinite_and_matches_lu() {
+    // Eigenvalues 3 and -1: indefinite, LLT fails but unpivoted LDLT works.
+    let a = Matrix::from_fn(2, 2, |i, j| if i == j { 1.0 } else { 2.0 });
+    let b = Vector::from_slice(&[1.0, -1.0]);
+    let x_ldlt = ldlt_factor(&a).expect("factor").solve(&b).expect("solve");
+    let x_lu = lu_factor(&a).expect("wc").solve(&b).expect("solve");
+    for i in 0..2 {
+        assert!((x_ldlt[i] - x_lu[i]).abs() < 1e-12, "component {i}");
+    }
+}
+
+#[test]
+fn ldlt_breakdown_errors() {
+    // Second pivot d_1 = 1 - 1*1*1 = 0: breakdown.
+    let a = Matrix::from_fn(2, 2, |_, _| 1.0);
+    assert_eq!(
+        ldlt_factor(&a).map(|_| ()),
+        Err(LinalgError::NotPositiveDefinite { pivot_index: 1 })
+    );
+}
+
+#[test]
+#[cfg(not(coverage))]
+fn ldlt_adjoint_matches_enzyme_and_fd() {
+    // Same objective/kernel as the LLT three-way test; only the rule leg
+    // changes factorization backend. Gradients must be identical.
+    let fd = central_difference_gradient(objective, &THETA, 1.0e-6).expect("fd");
+    let mut enzyme = vec![0.0; 12];
+    let (mut out, mut dout) = (0.0, 1.0);
+    d_kernel(&THETA, &mut enzyme, &mut out, &mut dout);
+
+    let a = spd_from(&THETA);
+    let b = Vector::from_slice(&THETA[9..12]);
+    let f = ldlt_factor(&a).expect("factor");
+    let x = f.solve(&b).expect("solve");
+    let x_bar = &x * 2.0;
+    let grads = solve_vjp(&f, &x, &x_bar).expect("vjp");
+    let mut adjoint = vec![0.0; 12];
+    for i in 0..3 {
+        for j in 0..3 {
+            adjoint[3 * i + j] = 0.5 * (grads.a_bar[(i, j)] + grads.a_bar[(j, i)]);
+        }
+        adjoint[9 + i] = grads.b_bar[i];
+    }
+
+    let enzyme_vs_adjoint = compare_gradients(&enzyme, &adjoint).expect("shape");
+    assert!(
+        enzyme_vs_adjoint.max_abs_error < 1.0e-9,
+        "Enzyme vs LDLT adjoint: {enzyme_vs_adjoint:?}"
+    );
+    let adjoint_vs_fd = compare_gradients(&adjoint, &fd).expect("shape");
+    assert!(
+        adjoint_vs_fd.max_abs_error < 1.0e-4,
+        "LDLT adjoint vs fd: {adjoint_vs_fd:?}"
     );
 }
