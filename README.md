@@ -83,4 +83,5 @@ nix develop
 - [Phase 1 gradient validation implementation plan](docs/implementation-plans/phase-1-gradient-validation.md)
 - [Phase 2 differentiable primitives identity decision](docs/decisions/0003-differentiable-primitives-identity.md)
 - [Phase 2 core types + linalg implementation plan](docs/implementation-plans/phase-2-core-types-and-linalg.md)
+- [Proposed next slice: differentiable function contract](docs/implementation-plans/2026-07-10-differentiable-function-contract.md)
 - [Decisions](docs/decisions/)
