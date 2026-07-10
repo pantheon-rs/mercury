@@ -17,6 +17,16 @@ pub enum LinalgError {
         /// Columns of the offending operand.
         cols: usize,
     },
+    /// Cholesky factorization hit a non-positive (or breakdown) pivot.
+    NotPositiveDefinite {
+        /// Column where factorization broke down.
+        pivot_index: usize,
+    },
+    /// QR factorization found a (numerically) rank-deficient column.
+    RankDeficient {
+        /// Column whose diagonal of `R` fell below tolerance.
+        column: usize,
+    },
 }
 
 impl fmt::Display for LinalgError {
@@ -27,6 +37,15 @@ impl fmt::Display for LinalgError {
             }
             Self::DimensionMismatch { rows, cols } => {
                 write!(f, "dimension mismatch: operand is {rows}x{cols}")
+            }
+            Self::NotPositiveDefinite { pivot_index } => {
+                write!(
+                    f,
+                    "matrix is not positive definite (breakdown at column {pivot_index})"
+                )
+            }
+            Self::RankDeficient { column } => {
+                write!(f, "matrix is rank deficient (column {column})")
             }
         }
     }

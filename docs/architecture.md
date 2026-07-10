@@ -114,6 +114,19 @@ src/
 Today's `objective.rs` / `validation.rs` are the `ad/` module — Phase 1 was
 building it all along; the reframe names it.
 
+### Phase 3: decomposition suite
+
+Phase 3 mines faer's layout (vendored at `ref/faer`) for an Enzyme-compatible
+decomposition suite: Cholesky (`llt_factor`, unpivoted `ldlt_factor`) and
+Householder QR (`qr_factor` with square `solve` and full-rank `solve_lstsq`),
+built on a shared triangular-substitution substrate and a `Perm` type. All
+square-solve factorizations (LU, LLT, LDLT) implement one `Factorization`
+trait, so a single adjoint rule (`solve_vjp`/`solve_jvp`) serves them all;
+least squares carries its own rule (`lstsq_vjp`/`lstsq_jvp`), validated by
+the same three-way agreement law. The one kernel-side addition is
+`solve_spd_fixed_unchecked` (unpivoted LLT, NaN-propagating). Matrix views
+and SVD/EVD are Phase 4 candidates per the Phase 3 spec.
+
 ## Phasing
 
 Foundations first, in dependency order. NLP / IPOPT / collocation /
@@ -122,11 +135,13 @@ strategy Metis followed.
 
 | Phase       | Contents                                        | Why this order                                                             |
 | ----------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| 1 (current) | `ad/`: macro, gradient, jvp/vjp, FD validation  | The engine room — everything else validates against it                     |
+| 1           | `ad/`: macro, gradient, jvp/vjp, FD validation  | The engine room — everything else validates against it                     |
 | 2           | `core/` types + `linalg/` solve; `geometry/`    | Types are the vocabulary; quaternions are cheap analytic wins              |
-| 3           | `interp/` 1D → N-D gridded                      | The aerospace workhorse; first real test of the kink-policy discipline     |
-| 4           | `roots/` (IFT) + `integrate/` (RK)              | First *composed* rules — consume Enzyme-on-residuals plus linalg solves    |
-| 5           | NLP interface, solver backend, transcriptions   | Consumes the derivative-contract callback shapes                           |
+| 3 (current) | decomposition suite: Cholesky (LLT/LDLT), QR    | Mines faer's layout for an Enzyme-compatible factorization substrate       |
+| 4 (planned) | SVD / EVD / GEVD                                | faer's heaviest machinery; derivative rules complicated by degeneracy      |
+| 5           | `interp/` 1D → N-D gridded                      | The aerospace workhorse; first real test of the kink-policy discipline     |
+| 6           | `roots/` (IFT) + `integrate/` (RK)              | First *composed* rules — consume Enzyme-on-residuals plus linalg solves    |
+| 7           | NLP interface, solver backend, transcriptions   | Consumes the derivative-contract callback shapes                           |
 
 Each phase gets its own decision record and implementation plan under
 `docs/decisions/` and `docs/implementation-plans/`.

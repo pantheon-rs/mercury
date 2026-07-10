@@ -1,6 +1,6 @@
 [package]
 name = "mercury"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Differentiable math substrate for pantheon-rs."
 license = "MIT"
