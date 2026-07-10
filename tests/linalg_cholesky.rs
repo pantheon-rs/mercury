@@ -138,7 +138,12 @@ fn llt_jvp_matches_directional_finite_difference() {
     let f = llt_factor(&a).expect("spd");
     let x = f.solve(&b).expect("solve");
 
-    let a_dot = Matrix::from_fn(3, 3, |i, j| 0.05 * ((i + 2 * j) as f64) - 0.1);
+    // The direction must be SYMMETRIC: llt_factor reads only the lower
+    // triangle, so the finite-difference leg below actually perturbs by
+    // the symmetric part of whatever lands in `a_p`/`a_m`. An asymmetric
+    // a_dot would make the JVP (which uses a_dot verbatim) and the FD
+    // disagree by construction.
+    let a_dot = Matrix::from_fn(3, 3, |i, j| 0.05 * ((i + j) as f64) - 0.1);
     let b_dot = Vector::from_slice(&[0.2, -0.1, 0.05]);
     let x_dot = solve_jvp(&f, &x, &a_dot, &b_dot).expect("jvp");
 

@@ -1,5 +1,5 @@
-// Exact float asserts are intentional in tests.
-#![allow(clippy::float_cmp)]
+// Exact float asserts and tiny index->f64 casts are intentional in tests.
+#![allow(clippy::float_cmp, clippy::cast_precision_loss)]
 
 //! Reductions and factorization determinants.
 
