@@ -21,9 +21,7 @@
       crane,
       rust-overlay,
     }:
-    # Restricted to the one system the pinned Enzyme artifact exists for
-    # (nix/rust-toolchain.nix fetches a prebuilt x86_64-linux libEnzyme; other
-    # systems would get a toolchain with a broken sysroot).
+    # Only this platform is validated by Mercury's Enzyme checks.
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (
       system:
       let
@@ -32,9 +30,7 @@
           overlays = [ (import rust-overlay) ];
         };
         rustWithEnzyme = import ./nix/rust-toolchain.nix { inherit pkgs; };
-        # The checks must compile with the SAME pinned nightly+Enzyme
-        # toolchain as the dev shell: the crate is nightly-only and its
-        # tests exercise -Zautodiff codegen.
+        # Use the same pinned compiler for developer runs and sandboxed checks.
         craneLib = (crane.mkLib pkgs).overrideToolchain rustWithEnzyme;
         formatter = import ./nix/formatter.nix {
           inherit pkgs treefmt-nix;

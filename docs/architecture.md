@@ -1,199 +1,129 @@
-# Mercury Architecture
+# Mercury architecture
 
-> **Mercury is a differentiable-by-construction math library for engineering
-> simulation and optimization. Every primitive is plain-`f64` Rust with a
-> validated, Mercury-owned derivative rule. Enzyme is the derivative engine;
-> Mercury owns the mathematical joints where brute-force AD is wrong.**
+Mercury is the numerical and differentiation foundation for `pantheon-rs`.
+The implementation currently contains an Enzyme compiler scaffold and
+derivative checks. The contracts below specify future work.
 
-Mercury is the math substrate for `pantheon-rs`. It should remain useful
-outside aerospace: aerospace-specific physics belongs in `vulcan`; plant
-simulation belongs in `icarus`.
+## Numerical boundary
 
-The identity decision is
-[`0003: Differentiable Primitives Identity`](decisions/0003-differentiable-primitives-identity.md);
-the engine decision is
-[`0002: Phase 1 Enzyme-Backed f64 Core`](decisions/0002-phase-1-enzyme-f64-core.md).
+A kernel computes `y = f(q, c)`. `q` contains active numerical values,
+including state, controls and any parameters whose derivatives are requested.
+`c` contains inactive configuration: dimensions, indices, modes and immutable
+data that are deliberately held constant. A parameter must not be hidden in
+`c` merely because it changes infrequently.
 
-## The Thesis
+Kernels use ordinary `f64` arithmetic, arrays and slices. They have explicit
+inputs and outputs, with no I/O, global mutation or graph traversal. Fixed
+arrays cover small vectors and matrices. Do not introduce generic scalars or
+a new matrix library. Add operations for real consumers and validate them
+under the pinned Enzyme toolchain.
 
-Metis's identity was a bridge between two worlds — the same templated model
-code compiled to Eigen arithmetic or a CasADi graph — with a large math
-toolbox on top. Enzyme dissolves that bridge: plain `f64` code is
-differentiated directly by the compiler.
+Rust compiles each named kernel, and Enzyme generates its derivative bodies.
+Mercury's operator contract exposes evaluation, a Jacobian-vector product
+`Jv`, and a vector-Jacobian product represented as `Jᵀw`. Macros remove
+activity and buffer boilerplate without introducing a symbolic DSL.
+Compilation success alone does not establish derivative correctness or an
+allocation bound.
 
-Mercury's bridge is a different one: **primal code to correct derivative.**
-Enzyme handles arbitrary user kernel code; Mercury supplies the
-mathematically correct derivative rule at every primitive where
-differentiating the algorithm is wrong or wasteful. That rule-ownership is
-what a bare `#[autodiff]` attribute does not give you, and it is the
-affirmative reason each Mercury subsystem exists.
+## Operators, plans and workspaces
 
-## Core Types: POD-Transparency
+An **Operator** describes a numerical map: its evaluation and derivative
+entry points, dimensions and conservative dependency contract. Enzyme kernels
+and explicitly differentiated solve operators use the same contract.
 
-Mercury owns its math types. The public contract never exposes `nalgebra` or
-`faer` types; backends may appear later *behind* primitives.
+A **Plan** owns operator instances, inactive configuration, connections,
+execution order, buffer layout and structural derivative information. One
+plan drives both numerical evaluation and derivative propagation. Runtime
+composition calls already-compiled operators; the graph scheduler remains
+outside the Enzyme call graph.
 
-One design law governs every type — **POD-transparency**:
+A **Workspace** owns mutable evaluation buffers, saved primal values,
+derivative scratch and numerical factors. Each concurrent evaluation needs
+its own workspace. A linearization refers to a particular primal point and
+plan epoch; its saved values cannot be reused after inputs or configuration
+change.
 
-- plain contiguous `f64` storage
-- no hidden allocation on differentiated paths
-- no `dyn`, no generic scalar
-- a `Duplicated` shadow of any Mercury type is the same type zeroed
-- every type has an Enzyme compile test proving it passes through
-  `#[autodiff]` cleanly
+Validate dimensions and buffer aliasing before dispatch. A numerical failure
+invalidates outputs and cached derivatives; it must not expose stale results.
+The operator boundary preserves caller seeds and overwrites destination
+buffers. Adapters initialize Enzyme shadow storage and isolate any seed
+mutation. The plan explicitly accumulates contributions from fan-out,
+repeated inputs and shared parameters, in a defined order.
 
-The types:
+## Graph and time semantics
 
-- `SVector<const N: usize>` / `SMatrix<const R: usize, const C: usize>` —
-  stack `[f64; N]`-backed fixed-size types. The aerospace hot path
-  (3-vectors, 3×3 DCMs, 6×6 spatial matrices, quaternion storage) and
-  Enzyme's happiest input shape.
-- `Vector` / `Matrix` — heap `Vec<f64>`-backed dynamic dense types for
-  problem-scale data (trajectories, Jacobians, collocation grids).
-- `Quaternion` plus rotation constructors and conversions
-  (DCM ↔ quaternion ↔ Euler) with analytic derivatives.
+Graph edits produce a new immutable plan epoch. Validate dimensions,
+connections and cycles before publishing it between evaluations or accepted
+simulation steps. Rebuild affected layouts and structural caches; never edit
+topology during a derivative sweep or nonlinear solve.
 
-Operator overloading covers the ring operations (`+`, `-`, `*` with scalars
-and matrices). **Solves and factorizations are primitives, not methods** —
-`mercury::solve(&A, &b)` carries the adjoint rule, so a `faer` backend can
-slot in later without the public contract changing.
+Icarus owns time, state commitment and connection semantics. A same-time
+connection participates in an acyclic dependency schedule. A delay reads an
+explicit snapshot of previously committed state. Its primal value remains
+unchanged during evaluation, while its tangent can propagate across steps.
+A declared implicit group defines a residual equation and a solve operator.
+Condensing those groups must leave an acyclic schedule;
+an unexplained cycle is an error, not an implicit solver request.
 
-The `f64`-only commitment is the point, not a limitation: Metis needed
-generic scalars because the scalar *was* the backend switch. Mercury's
-backend switch is a compiler pass, so the types stay concrete and simple.
+## Jacobians and linear algebra
 
-## Derivative Rules at the Joints
+Begin with dense local Jacobians obtained from seeded JVPs or VJPs. Global
+Jacobians follow the chain rule through the plan; graph adjacency alone is
+not their sparsity pattern. Structural dependencies must conservatively cover
+all branches allowed by an epoch. A numerical zero does not remove an entry.
 
-Enzyme differentiates user kernels and residual/RHS functions. At the
-primitives, Mercury owns the rule, built by composing Enzyme calls on the
-pieces:
+When scale requires sparse assembly, the plan owns stable row/column order,
+CSC structure and scatter maps. Numerical values change per linearization.
+Symbolic factorization can be reused for an unchanged pattern; numerical
+factors can be reused only for an unchanged matrix.
 
-| Primitive          | Rule                                                        |
-| ------------------ | ----------------------------------------------------------- |
-| Root finding       | Implicit function theorem on the residual — never the loop  |
-| Linear solve       | Adjoint rule (two solves) — never the factorization         |
-| Interpolation      | Closed-form basis derivatives; documented breakpoint policy |
-| ODE integration    | Differentiate-through fixed-step RK; sensitivity later      |
-| Quaternions        | Analytic                                                    |
+Add faer as the sole general linear-algebra dependency when the first solve
+consumer needs it. Use its matrices, borrowed views, factorizations and
+workspace APIs; do not reproduce its decomposition algorithms. No nalgebra
+dependency or parallel Mercury matrix hierarchy is planned. Arrays can be
+borrowed through faer views, while owned faer matrices may include column
+padding. Packing, shape and stride handling belong at that boundary.
+Faer operations remain outside differentiated kernels unless individually
+validated; changing matrix libraries does not establish Enzyme compatibility.
 
-A caller cannot tell whether Enzyme or a hand-derived rule produced the
-numbers; both are held to identical validation.
+## Differentiating solves
 
-## The Derivative Contract
-
-Everything differentiable exports the same shapes — user kernels via the
-`scalar_objective!` macro, primitives via their owned rules. These are chosen
-because they are exactly the callbacks the end-game optimization layer
-consumes:
-
-| Shape                | Mode                 | Status                   |
-| -------------------- | -------------------- | ------------------------ |
-| `value_and_gradient` | reverse              | exists                   |
-| `jvp`                | forward              | Phase 1 exit criterion   |
-| `vjp`                | reverse              | with `jvp`               |
-| `jacobian` (dense)   | batched jvp/vjp      | foundations phase        |
-| `hvp`                | forward-over-reverse | deferred until nested AD |
-
-## Module Map
-
-Single crate; modules in dependency order. No workspace until something
-forces one.
+For a nonsingular real system `A x = b`, implement the first-order rules:
 
 ```text
-src/
-  lib.rs
-  core/        # SVector, SMatrix, Vector, Matrix, ops — POD-transparency law
-  ad/          # scalar_objective macro, jvp/vjp/jacobian, finite-diff validation
-  linalg/      # solve() + factorizations (LLT, LU) as adjoint-rule primitives
-  geometry/    # Quaternion, DCM/Euler conversions, analytic derivatives
-  interp/      # gridded 1D → N-D tables, documented breakpoint policy
-  roots/       # Newton/bracketing + IFT derivative rule
-  integrate/   # fixed-step RK4/RK45 differentiate-through; sensitivity later
+JVP:  A dx = db - dA x
+VJP:  Aᵀ λ = x_bar;  b_bar = λ;  A_bar = -λ xᵀ
 ```
 
-Today's `objective.rs` / `validation.rs` are the `ad/` module — Phase 1 was
-building it all along; the reframe names it.
+Reuse the primal factors for ordinary or transpose solves. For sparse inputs,
+compute cotangents only for represented matrix entries. The plan accumulates
+these local results.
 
-### Phase 3: decomposition suite
+For a converged root `R(z, q) = 0`, differentiate its residual:
 
-Phase 3 mines faer's layout (vendored at `ref/faer`) for an Enzyme-compatible
-decomposition suite: Cholesky (`llt_factor`, unpivoted `ldlt_factor`) and
-Householder QR (`qr_factor` with square `solve` and full-rank `solve_lstsq`),
-built on a shared triangular-substitution substrate and a `Perm` type. All
-square-solve factorizations (LU, LLT, LDLT) implement one `Factorization`
-trait, so a single adjoint rule (`solve_vjp`/`solve_jvp`) serves them all;
-least squares carries its own rule (`lstsq_vjp`/`lstsq_jvp`), validated by
-the same three-way agreement law. The one kernel-side addition is
-`solve_spd_fixed_unchecked` (unpivoted LLT, NaN-propagating). Matrix views
-and SVD/EVD are Phase 4 candidates per the Phase 3 spec.
-
-## Phasing
-
-Foundations first, in dependency order. NLP / IPOPT / collocation /
-transcriptions are the end-game the foundations are designed for — the same
-strategy Metis followed.
-
-| Phase       | Contents                                        | Why this order                                                             |
-| ----------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| 1           | `ad/`: macro, gradient, jvp/vjp, FD validation  | The engine room — everything else validates against it                     |
-| 2           | `core/` types + `linalg/` solve; `geometry/`    | Types are the vocabulary; quaternions are cheap analytic wins              |
-| 3 (current) | decomposition suite: Cholesky (LLT/LDLT), QR    | Mines faer's layout for an Enzyme-compatible factorization substrate       |
-| 4 (planned) | SVD / EVD / GEVD                                | faer's heaviest machinery; derivative rules complicated by degeneracy      |
-| 5           | `interp/` 1D → N-D gridded                      | The aerospace workhorse; first real test of the kink-policy discipline     |
-| 6           | `roots/` (IFT) + `integrate/` (RK)              | First *composed* rules — consume Enzyme-on-residuals plus linalg solves    |
-| 7           | NLP interface, solver backend, transcriptions   | Consumes the derivative-contract callback shapes                           |
-
-Each phase gets its own decision record and implementation plan under
-`docs/decisions/` and `docs/implementation-plans/`.
-
-## Validation: The Three-Legged Test Law
-
-Every primitive ships all three or it does not merge:
-
-1. **Enzyme compile test** — the pattern passes `#[autodiff]` under the
-   pinned toolchain. This is nightly; it *will* move, and these tests are
-   the regression tripwire.
-2. **Finite-difference cross-check** — via the `validation` module.
-3. **Analytic check** — wherever closed-form derivatives exist
-   (quaternions, interpolation bases, linear solve).
-
-Unsupported patterns (e.g., `dyn Trait` in the differentiated call graph)
-get **negative tests** with documented guidance — the AD-safe subset is an
-enforced contract, not prose.
-
-## Error Handling
-
-Fallible primitives (`solve` on a singular matrix, interpolation
-out-of-bounds) return `Result` at the API boundary, *before* entering
-differentiated code. Differentiated paths stay panic-free and branch-light.
-
-Value-dependent branches, `abs`, `min`/`max`, clamps, table lookups, and
-mode switches remain piecewise operations: every primitive with a kink or
-policy choice documents its derivative behavior in its rustdoc. This
-per-primitive derivative-policy documentation is Mercury's equivalent of
-Metis's user-guide discipline.
-
-## Author-Facing Contract
-
-Model authors write normal numeric Rust:
-
-```rust
-fn drag(rho: f64, v: f64, area: f64, cd: f64) -> f64 {
-    0.5 * rho * v.powi(2) * area * cd
-}
+```text
+JVP:  R_z dz = -R_q dq
+VJP:  R_zᵀ λ = z_bar;  q_bar = -R_qᵀ λ
 ```
 
-Control flow is allowed, including `if`, `match`, and fixed-structure loops.
-Phase 1 kernels stay within the conservative AD-safe subset:
+These rules require a differentiable local solution and invertible relevant
+Jacobian. Solve errors affect accuracy; failure must remain explicit.
+Differentiating a finite iteration sequence is a different contract. First
+implement solve operators in host composition: custom rules are not
+automatically substituted inside arbitrary Enzyme kernels. Higher derivatives
+require additional rules and validation.
 
-- deterministic numeric code
-- scalar, slice, fixed-array, and Mercury-type inputs
-- local mutation and output buffers only
-- no `dyn Trait` in the differentiated call graph
-- no I/O, global mutation, threading side effects, or FFI on the
-  differentiated path
-- no allocator-heavy or opaque library internals until a compile test proves
-  them safe
+## Derivative meaning and validation
 
-Raw Enzyme activity markers, shadow buffers, and generated derivative entry
-points stay behind Mercury-owned APIs.
+A fixed-graph derivative holds topology and discrete modes constant. A step
+derivative must cover the actual numerical update, including its stages and
+state mapping. A trajectory derivative additionally requires composition
+across committed steps. Hybrid derivatives may require event-time and reset
+sensitivities; branchwise AD alone does not supply them.
+
+Validate changed boundaries with analytic examples, directional finite
+differences, the identity `wᵀ(Jv) = vᵀ(Jᵀw)`, and composition cases involving
+shared inputs. Check implicit derivatives by perturbing and resolving.
+Deterministic replay initially means a pinned build and platform with stable
+execution and reduction order. Allocation bounds, parallel reproducibility
+and cross-platform bitwise equality need separate evidence.

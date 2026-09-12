@@ -7,7 +7,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 enter_nix_if_needed() {
     if [ "${MERCURY_ENZYME_SHELL:-}" != "1" ]; then
-        exec nix develop . --command "$0" "$@"
+        exec nix develop "path:$PROJECT_ROOT" --command "$0" "$@"
     fi
 }
 

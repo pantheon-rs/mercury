@@ -12,11 +12,9 @@ for arg in "$@"; do
     case "$arg" in
         --release)
             ;;
-        --debug)
-            BUILD_ARGS=(--all-targets --all-features)
-            ;;
         -h|--help)
-            echo "Usage: scripts/build.sh [--debug|--release]"
+            echo "Usage: scripts/build.sh [--release]"
+            echo "Enzyme requires release builds with fat LTO."
             exit 0
             ;;
         *)

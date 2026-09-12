@@ -1,6 +1,6 @@
 [package]
 name = "mercury"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "Differentiable math substrate for pantheon-rs."
 license = "MIT"
@@ -21,13 +21,6 @@ codegen-units = 1
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
-# cargo-llvm-cov sets --cfg=coverage; the Enzyme test legs are gated behind
-# cfg(not(coverage)) because Enzyme cannot differentiate the atomic profile
-# counters that coverage instrumentation injects.
-unexpected_cfgs = { level = "warn", check-cfg = [
-  "cfg(coverage)",
-  "cfg(coverage_nightly)",
-] }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

@@ -1,87 +1,36 @@
 # Mercury
 
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://pantheon-rs.github.io/mercury/) [![CI](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml) [![Format](https://github.com/pantheon-rs/mercury/actions/workflows/format.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/format.yml) [![Docs](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml) [![Security](https://github.com/pantheon-rs/mercury/actions/workflows/security.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/security.yml) [![codecov](https://codecov.io/github/pantheon-rs/mercury/graph/badge.svg?token=GI55YCT3P5)](https://codecov.io/github/pantheon-rs/mercury)
+Differentiable numerical operators for simulation and optimization in Rust.
 
-`mercury` is the differentiable math substrate for `pantheon-rs`.
+Mercury is restarting from a pinned experimental Rust/Enzyme scaffold. There
+is no public math API yet. The smoke tests exercise compiled forward and
+reverse derivatives of an ordinary `f64` function.
 
-The Phase 1 direction is an Enzyme-first autodiff crate for plain `f64` model
-code. This is the Metis idea reduced to the part that matters first: model code
-is written once as ordinary numeric Rust, and Mercury owns the derivative entry
-points, shadow-buffer plumbing, and validation surface.
+The architecture is fixed around three responsibilities:
 
-Phase 1 owns:
+- Enzyme compiles each numerical block's value, JVP, and VJP entry points.
+- Mercury composes those operators across runtime-selected connections.
+- faer supplies dynamic matrices and factorizations behind explicit derivative
+  rules. It will be the only general linear algebra dependency; none is needed
+  by the scaffold.
 
-- plain `f64` model-kernel conventions
-- Enzyme-backed dense derivative evaluators
-- finite-difference and analytic derivative checks
-- a conservative AD-safe kernel subset
-- room for sparse derivative callbacks later
-
-It does not start with a generic scalar trait, a symbolic graph engine, a solver
-stack, or a full linear algebra facade. Sparsity, graph coloring, and
-optimization-facing callbacks are designed when real problem scale demands
-them, without changing ordinary model code into a symbolic DSL.
-
-Phase 2 adds the owned core types and the first owned derivative rule:
-kernel-safe `SVector`/`SMatrix`/`Quaternion` (proven against Enzyme per
-type), host-side `Vector`/`Matrix`, and linear solve where small systems
-differentiate through `solve_fixed_unchecked` (the kernel-safe infallible
-variant; `solve_fixed` is the `Result`-returning host wrapper) while
-problem-scale systems use the LU primitive with the adjoint rule. See
-`docs/decisions/0003-differentiable-primitives-identity.md`.
-
-## Source Layout
-
-```text
-src/
-  lib.rs
-  objective.rs     # scalar_objective! macro (Enzyme reverse entry points)
-  validation.rs    # finite-difference oracles
-  core/            # SVector, SMatrix (kernel-safe) + Vector, Matrix (host-side)
-  geometry/        # Quaternion
-  linalg/          # solve_fixed, LU solve + adjoint rule (solve_vjp/solve_jvp)
-tests/             # one suite per module, three-legged test law
-examples/
-  solve_gradient.rs  # one gradient, three ways (fd / enzyme / adjoint)
-```
-
-The root crate is the Enzyme-backed Mercury library. `src/objective.rs` contains
-the initial scalar-objective API, and `tests/objective.rs` proves that API
-against Enzyme, finite differences, and analytic gradients.
-
-The first user-facing API is:
-
-```rust
-mercury::scalar_objective! {
-    pub mod rosenbrock(x) {
-        let mut acc = 0.0;
-        for i in 0..x.len() - 1 {
-            let a = x[i + 1] - x[i] * x[i];
-            let b = 1.0 - x[i];
-            acc += 100.0 * a * a + b * b;
-        }
-        acc
-    }
-}
-
-let result = rosenbrock::value_and_gradient(&[0.5; 6]);
-```
+Start with [the architecture](docs/architecture.md). [Validation](docs/validation.md)
+records the supported toolchain, checks, and earlier compiler findings.
 
 ## Development
 
-```text
-nix develop
+The pinned environment targets `x86_64-linux` and uses release builds with fat LTO.
+
+```sh
+nix develop path:.
 ./scripts/build.sh
-./scripts/test.sh
 ./scripts/ci.sh
 ```
 
-## Documentation
+## Next implementation
 
-- [Architecture](docs/architecture.md)
-- [Phase 1 Enzyme-backed `f64` decision](docs/decisions/0002-phase-1-enzyme-f64-core.md)
-- [Phase 1 gradient validation implementation plan](docs/implementation-plans/phase-1-gradient-validation.md)
-- [Phase 2 differentiable primitives identity decision](docs/decisions/0003-differentiable-primitives-identity.md)
-- [Phase 2 core types + linalg implementation plan](docs/implementation-plans/phase-2-core-types-and-linalg.md)
-- [Proposed next slice: differentiable function contract](docs/implementation-plans/2026-07-10-differentiable-function-contract.md)
-- [Decisions](docs/decisions/)
+1. Expose a vector-valued operator with reusable value/JVP/VJP buffers.
+2. Compose several operators with shared inputs and verify their derivatives.
+3. Add one faer-backed solve operator and an aerospace linearization example.
+
+The previous implementation is retained in Git history at `58d2f49`.
