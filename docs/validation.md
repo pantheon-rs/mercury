@@ -28,6 +28,27 @@ must be tracked for Git-backed flake checks to include them. Coverage is deferre
 until the library has executable behavior; instrumented Enzyme paths previously
 failed on injected atomic counters.
 
+## Isolated probes: 2026-09-12
+
+Scratch probes used the pinned compiler `4429659e4` (LLVM 22.1.7), release
+optimization, fat LTO, and `-Zautodiff=Enable`. They are not committed regression
+tests or performance measurements.
+
+| Pattern | Observed result |
+| --- | --- |
+| Width-4 forward `Dual`, slices | Four analytic JVPs passed |
+| Width-4 reverse `Duplicated`, slices | Four analytic VJPs passed |
+| Width-4 packed `Dualv`, slices | Four analytic JVPs passed |
+| Scalar-reference `Dualv`; slice-output `DualvOnly` | Compiler internal errors |
+| Proc macro emitting both AD attributes | Primal, JVP, and VJP passed |
+
+Width follows the derivative name, for example
+`#[autodiff_reverse(df, 4, Duplicated, Duplicated)]`. Reverse batching works
+without a `Duplicatedv` activity. These results do not establish reusable reverse
+tapes, allocation bounds, or speedups. See the pinned compiler's
+[argument lowering](https://github.com/rust-lang/rust/blob/4429659e4745016bd3f26a4a421843edc7fbc422/compiler/rustc_codegen_llvm/src/builder/autodiff.rs)
+and [batching test](https://github.com/rust-lang/rust/blob/4429659e4745016bd3f26a4a421843edc7fbc422/tests/codegen-llvm/autodiff/batched.rs).
+
 ## Earlier compiler findings
 
 The July 2026 experiments used nightly `2026-03-03` (`ec818fda3`, LLVM 22)
@@ -47,8 +68,11 @@ generated derivatives.
 
 - Operators: shape errors, complete writes, unchanged input seeds, repeated calls,
   analytic checks, and directional finite differences.
+- Batching: seed independence, packed output layout, partial final batches, and
+  empty batches.
 - Composition: fan-out, repeated inputs, shared parameters, adjoint identity,
-  and rejection of stale plans or linearizations.
+  and rejection of stale plans or linearizations; failed evaluation must
+  invalidate the linearization.
 - Solves: residual accuracy and sensitivities compared with perturb-and-resolve;
   singularity or nonconvergence must invalidate results.
 - Simulation example: compare the numerical and differentiated evaluation paths,
