@@ -6,7 +6,7 @@ source "$SCRIPT_DIR/_common.sh"
 enter_enzyme_nix_if_needed "$@"
 cd_project_root
 
-BUILD_ARGS=(--release --all-targets --all-features)
+BUILD_ARGS=(--release --workspace --all-targets --all-features --locked)
 
 for arg in "$@"; do
     case "$arg" in

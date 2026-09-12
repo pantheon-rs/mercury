@@ -1,8 +1,10 @@
 # Mercury architecture
 
 Mercury composes differentiable numerical operators for simulation and
-optimization. Only the compiler scaffold is implemented; this document defines
-the first operator API. It supersedes the matrix/primitive design at `58d2f49`.
+optimization. Compiled kernels, runtime plans, first-order products, dense
+Jacobians, and linear/implicit solves are implemented. Sparse assembly and
+exact second derivatives remain future work. This design supersedes the
+matrix/primitive implementation at `58d2f49`.
 
 ## Compile kernels, compose operators
 
@@ -29,6 +31,9 @@ in `q`; put dimensions, indices and deliberately inactive configuration in
 `c`. Runtime seeds select directions within `q`. Zero-seeding an input
 excludes its contribution to a JVP; it cannot make a `Const` input active.
 Macros generate Enzyme entry points and buffer adapters from the kernel.
+`#[differentiable(inputs = n, outputs = m)]` accepts a concrete function with
+signature `fn(config: &Config, q: &[f64], y: &mut [f64])` and generates its
+`<name>_operator(config)` constructor. Domain validators run in the adapter.
 
 Use substantial numerical blocks with stable interfaces. Keep helper calls and
 domain algorithms, including tree traversal over inactive indices, inside a
@@ -56,6 +61,8 @@ Icarus owns the simulation model and lowers it into a Mercury plan; it does not
 maintain a separately editable copy of that plan's connections. Generic Mercury
 consumers can build plans directly. One plan drives value and derivative
 execution; Mercury does not schedule simulation activations or commit state.
+A plan also implements `Operator`, allowing nested numerical groups and
+runtime-composed residuals inside an implicit solve.
 
 | Object | Owns or borrows |
 | --- | --- |
@@ -150,13 +157,13 @@ may avoid copies. This contract does not require allocation per edge.
 
 ## Jacobians and solves
 
-Start with dense local Jacobians assembled from derivative products. Dependencies
+Assemble dense Jacobians from derivative products when needed. Dependencies
 propagate through the plan, so graph adjacency is not the global sparsity pattern.
 Conservative patterns cover every branch allowed by an epoch; a numerical zero
 does not remove an entry.
 
-Add faer as the sole general linear algebra dependency with the first solve
-consumer. Use its matrices, views and factorizations. Keep shape, stride and
+faer is the sole general linear algebra dependency. Use its matrices, views
+and factorizations. Keep shape, stride and
 packing conversions at the boundary; owned faer matrices may contain padding.
 Faer internals remain outside Enzyme unless a particular path is validated.
 
@@ -197,8 +204,9 @@ Implicit rules require a differentiable local solution and invertible relevant
 Jacobian. Evaluate residual derivatives at the returned solution; rebuild
 factors left over from an earlier iterate. Convergence and conditioning affect
 accuracy. These rules differentiate the solution, not a finite iteration
-sequence. Mercury composes solve callbacks
-explicitly; it does not assume Enzyme substitutes them inside arbitrary kernels.
+sequence. `ImplicitSolve` uses undamped Newton with an explicit initial guess,
+absolute residual tolerance, and iteration limit. Mercury composes solve
+callbacks explicitly; Enzyme does not substitute them inside arbitrary kernels.
 
 ## Simulation and replay
 
@@ -229,6 +237,8 @@ storage for replay; retaining every operator tape is not required. Choose that
 policy from measured memory use. Icarus owns trajectory history; Mercury owns
 numerical replay of each prepared plan. History must retain or reconstruct each
 immutable plan and its configuration; an epoch number alone is insufficient.
+The flight example demonstrates a fixed checkpoint stride in host code;
+Mercury does not choose a trajectory storage policy.
 
 The initial API guarantees first-order derivatives within fixed modes and
 specified event schedules. Gauss–Newton and quasi-Newton consumers fit this

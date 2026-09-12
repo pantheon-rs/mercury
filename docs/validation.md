@@ -1,12 +1,22 @@
 # Validation
 
-## Current scaffold
+## Current checks
 
 `tests/enzyme.rs` applies forward and reverse autodiff to the same slice-based
 function from two inputs to three outputs. It checks primal values, non-basis
 JVP/VJP seeds against analytic derivatives, a central directional difference,
-and the adjoint identity. These tests exercise the compiler; they do not
-establish a public operator API or graph composition.
+and the adjoint identity. The implementation adds:
+
+| Boundary | Evidence |
+| --- | --- |
+| Kernel macro/adapter | Analytic derivatives, inactive configuration, runtime dimensions, batches, preserved seeds, domain and buffer failures |
+| Runtime plan | Fan-out, repeated inputs/outputs, finite differences, adjoint identity, Jacobian assembly, cycle/foreign-handle rejection, failure recovery |
+| Solves | Pivoted nonsymmetric systems, perturb-and-resolve, cached products, final-root Jacobian, composed residual plans, singularity/nonconvergence |
+| Flight trajectory | RK4 analytic cases, ten sensitivities by finite differences, adjoint identity, exact fixed-schedule checkpoint replay |
+
+A compile-fail doctest checks that a borrowed linearization prevents mutation
+of its point. These checks establish the tested numerical paths, not general
+Enzyme compatibility or performance bounds.
 
 The environment in `nix/rust-toolchain.nix` pins Rust nightly `2026-06-23`
 with its matching distributed `enzyme` component for `x86_64-linux`.
@@ -16,17 +26,22 @@ The existing Nix input locks are unchanged. See Rust's
 [Enzyme installation guide](https://rustc-dev-guide.rust-lang.org/autodiff/installation.html).
 
 ```sh
-nix develop path:.
-cargo test --release --locked --test enzyme
+nix develop
+cargo test --release --workspace --all-features --locked
 ./scripts/ci.sh
 nix flake check
 ```
 
-The CI script checks formatting, clippy, release tests, documentation, and
+The CI script checks formatting, workspace clippy/release tests, documentation, and
 dependencies. Flake checks also build the package in the Nix sandbox. New files
 must be tracked for Git-backed flake checks to include them. Coverage is deferred
 until the library has executable behavior; instrumented Enzyme paths previously
 failed on injected atomic counters.
+
+The flight kernel exposed another compiler limitation: zero-initialized
+temporary RK arrays followed by overwrite loops failed Enzyme's `memset` type
+inference. Explicit element construction passes. This is a finding for that
+kernel and compiler, not a ban on mutable arrays.
 
 ## Isolated probes: 2026-09-12
 
@@ -60,20 +75,20 @@ not blanket statements about either library or current compiler releases.
 
 The original reports and numerical reference tests remain in Git at `58d2f49`,
 including `docs/decisions/0003-differentiable-primitives-identity.md` and `tests/`.
-Revalidate a specific kernel before expanding the supported subset. The scaffold
+Revalidate a specific kernel before expanding the supported subset. The implementation
 does not prove automatic custom-rule substitution, nested AD, or allocation-free
 generated derivatives.
 
-## Checks for the next implementation
+## Limits
 
-- Operators: shape errors, complete writes, unchanged input seeds, repeated calls,
-  analytic checks, and directional finite differences.
-- Batching: seed independence, packed output layout, partial final batches, and
-  empty batches.
-- Composition: fan-out, repeated inputs, shared parameters, adjoint identity,
-  and rejection of stale plans or linearizations; failed evaluation must
-  invalidate the linearization.
-- Solves: residual accuracy and sensitivities compared with perturb-and-resolve;
-  singularity or nonconvergence must invalidate results.
-- Simulation example: compare the numerical and differentiated evaluation paths,
-  with explicit held state and the same integration stages.
+Runtime batches currently loop over scalar derivatives. The native-width probes
+above do not establish a faster adapter. Workspaces reuse graph buffers; batch
+growth, dense Jacobian assembly, and faer's high-level factor/solve paths may
+allocate. LU rejects zero/non-finite pivots without providing a condition estimate.
+Newton requires a suitable initial guess. Replay evidence covers the example's
+fixed plan and held-input schedule on the pinned build/platform.
+
+`deny.toml` acknowledges [RUSTSEC-2024-0436](https://rustsec.org/advisories/RUSTSEC-2024-0436):
+faer transitively uses the unmaintained `paste` macro crate. An isolated check of
+faer 0.24.4 found the same dependency. The advisory reports no vulnerability or
+patched version; the exception stays specific to this maintenance notice.

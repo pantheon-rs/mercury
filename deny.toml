@@ -1,6 +1,8 @@
 [advisories]
 version = 2
-ignore = []
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "faer transitively requires paste, including in faer 0.24.4. This is a maintenance-only advisory with no patched version; remove this exception when faer removes paste." },
+]
 
 [licenses]
 version = 2

@@ -27,7 +27,7 @@ let
     // {
       inherit cargoArtifacts;
       doCheck = true;
-      cargoExtraArgs = "--all-features";
+      cargoExtraArgs = "--workspace --all-features";
     }
   );
 in

@@ -11,6 +11,15 @@ categories = ["mathematics", "science", "simulation"]
 publish = false
 
 [dependencies]
+faer = { version = "=0.23.2", default-features = false, features = [
+  "std",
+  "linalg",
+] }
+mercury-macros = { version = "=0.1.0", path = "macros" }
+
+[workspace]
+members = ["macros"]
+resolver = "3"
 
 [dev-dependencies]
 

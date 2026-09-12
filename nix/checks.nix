@@ -21,21 +21,21 @@ in
   clippy = craneLib.cargoClippy (
     withArtifacts
     // {
-      cargoClippyExtraArgs = "--all-targets --all-features -- -D warnings";
+      cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
     }
   );
 
   tests = craneLib.cargoTest (
     withArtifacts
     // {
-      cargoExtraArgs = "--all-features";
+      cargoExtraArgs = "--workspace --all-features";
     }
   );
 
   docs = craneLib.cargoDoc (
     withArtifacts
     // {
-      cargoDocExtraArgs = "--no-deps --all-features";
+      cargoDocExtraArgs = "--workspace --no-deps --all-features";
     }
   );
 

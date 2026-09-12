@@ -7,7 +7,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 enter_nix_if_needed() {
     if [ "${MERCURY_ENZYME_SHELL:-}" != "1" ]; then
-        exec nix develop "path:$PROJECT_ROOT" --command "$0" "$@"
+        # Git filtering keeps active build artifacts out of Nix's source snapshot.
+        exec nix develop "$PROJECT_ROOT" --command "$0" "$@"
     fi
 }
 
