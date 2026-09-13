@@ -4,6 +4,7 @@
 //! vertical velocity, pitch, and pitch rate. This is a two-dimensional flight
 //! model, not a six-degree-of-freedom vehicle model.
 
+use mercury::advanced::PlanExecution;
 use mercury::{Error, Plan, Result, Source};
 
 pub const STATES: usize = 6;
@@ -85,7 +86,7 @@ fn shifted(state: &State, rate: &State, dt: f64) -> State {
 /// Active inputs pack state, thrust, torque, mass, inertia, and wind in that
 /// order. The host commits the returned state only after successful evaluation.
 /// No RK stage samples a new command or changes host state.
-#[mercury::differentiable(inputs = INPUTS, outputs = STATES)]
+#[mercury::advanced::differentiable(inputs = INPUTS, outputs = STATES)]
 pub fn rk4_step(config: &FlightConfig, input: &[f64], output: &mut [f64]) {
     let initial = [input[0], input[1], input[2], input[3], input[4], input[5]];
     let k1 = derivatives(config, &initial, input);
@@ -98,7 +99,7 @@ pub fn rk4_step(config: &FlightConfig, input: &[f64], output: &mut [f64]) {
 }
 
 /// Terminal position and pitch error; target coordinates are inactive.
-#[mercury::differentiable(inputs = STATES, outputs = 1)]
+#[mercury::advanced::differentiable(inputs = STATES, outputs = 1)]
 pub fn terminal_score(target: &Target, input: &[f64], output: &mut [f64]) {
     let dx = input[0] - target.x;
     let dz = input[1] - target.z;
@@ -183,7 +184,7 @@ pub fn rollout(
             "a trajectory requires at least one input sample",
         ));
     }
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(plan);
     let mut state = initial;
     let mut output = [0.0; OUTPUTS];
     for &held in history {
@@ -217,7 +218,7 @@ pub fn trajectory_vjp(
             "trajectory and checkpoint stride must be nonzero",
         ));
     }
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(plan);
     let mut state = initial;
     let mut output = [0.0; OUTPUTS];
     let mut checkpoints = Vec::new();

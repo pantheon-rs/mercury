@@ -1,11 +1,10 @@
 //! Independent numerical and lifecycle checks for explicit solve derivatives.
 
+use mercury::advanced::{Operator, OperatorWorkspace, PlanExecution, Shape};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use mercury::{
-    DenseSolve, Error, ImplicitSolve, Operator, OperatorWorkspace, Plan, Result, Shape, Source,
-};
+use mercury::{DenseSolve, Error, ImplicitSolve, Plan, Result, Source};
 
 fn close(actual: &[f64], expected: &[f64], tolerance: f64) {
     assert_eq!(actual.len(), expected.len());
@@ -142,7 +141,7 @@ fn derivative_overflow_invalidates_the_plan_and_a_new_point_recovers() {
         [Source::Input(0), Source::Input(1)],
     );
     let plan = builder.build([solve.output(0)]).unwrap();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let point = [1e-308, 1e-308];
     {
         let mut linearization = plan.linearize(&point, &mut workspace).unwrap();
@@ -282,7 +281,7 @@ fn runtime_composed_residual_can_be_solved_inside_another_plan() {
     let mut builder = Plan::builder(1);
     let root = builder.add(solve, [Source::Input(0)]);
     let plan = builder.build([root.output(0)]).unwrap();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let point = [4.0];
     let mut linearization = plan.linearize(&point, &mut workspace).unwrap();
     let mut derivative = [0.0];

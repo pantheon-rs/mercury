@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{check_finite, check_len};
-use crate::{Error, Operator, OperatorWorkspace, Result, Shape};
+use crate::{Error, Operator, OperatorWorkspace, PlanExecution, Result, Shape};
 
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 
@@ -18,6 +18,8 @@ pub struct NodeId {
 
 impl NodeId {
     /// Select a scalar output of this node.
+    ///
+    /// See the [example](crate#build-a-graph).
     pub const fn output(self, index: usize) -> Source {
         Source::Node(self, index)
     }
@@ -46,6 +48,8 @@ pub struct PlanBuilder {
 
 impl PlanBuilder {
     /// Add an instance. Connections are checked when the plan is built.
+    ///
+    /// See the [example](crate#build-a-graph).
     pub fn add(
         &mut self,
         operator: impl Operator + 'static,
@@ -64,6 +68,8 @@ impl PlanBuilder {
 
     /// Replace a node's inputs, including forward references to other nodes.
     ///
+    /// See the [example](crate#build-a-graph).
+    ///
     /// # Errors
     /// Rejects a node from another builder or a missing node.
     pub fn connect(&mut self, node: NodeId, sources: impl Into<Vec<Source>>) -> Result<()> {
@@ -76,6 +82,8 @@ impl PlanBuilder {
     }
 
     /// Validate wiring and cycles, then fix execution order and buffer layouts.
+    ///
+    /// See the [example](crate#build-a-graph).
     ///
     /// # Errors
     /// Rejects invalid dimensions, references, cycles, and overflowing layouts.
@@ -236,6 +244,8 @@ pub struct Plan {
 impl Plan {
     /// Start a new plan epoch with this many active scalar inputs.
     ///
+    /// See the [example](crate#build-a-graph).
+    ///
     /// # Panics
     /// Panics if the process exhausts all `u64` plan identities.
     pub fn builder(inputs: usize) -> PlanBuilder {
@@ -249,47 +259,135 @@ impl Plan {
         }
     }
 
-    /// Identity of this immutable plan; replay must also retain the plan itself.
-    pub const fn epoch(&self) -> u64 {
+    /// Wrap one numerical operator as a directly callable function.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    ///
+    /// # Errors
+    /// Rejects overflowing dimensions.
+    pub fn from_operator(operator: impl Operator + 'static) -> Result<Self> {
+        let shape = operator.shape();
+        for size in [shape.inputs, shape.outputs] {
+            std::alloc::Layout::array::<Source>(size).map_err(|_| Error::SizeOverflow)?;
+        }
+        let mut builder = Self::builder(shape.inputs);
+        let node = builder.add(
+            operator,
+            (0..shape.inputs).map(Source::Input).collect::<Vec<_>>(),
+        );
+        builder.build(
+            (0..shape.outputs)
+                .map(|index| node.output(index))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// Evaluate the published outputs, returning an owned vector.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    ///
+    /// # Errors
+    /// Rejects invalid inputs and propagates numerical errors.
+    pub fn eval(&self, point: &[f64]) -> Result<Vec<f64>> {
+        self.check_point(point)?;
+        let mut workspace = self.workspace();
+        self.run(point, &mut workspace, false)?;
+        Ok(workspace.result)
+    }
+
+    /// Select the gradient of a plan with exactly one published output.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    /// The output count is checked when the gradient is evaluated.
+    pub const fn gradient(&self) -> Gradient<'_> {
+        Gradient { plan: self }
+    }
+
+    /// Select the Jacobian, with output rows and input columns.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    pub const fn jacobian(&self) -> Jacobian<'_> {
+        Jacobian { plan: self }
+    }
+
+    /// Evaluate a scalar plan's value and gradient together.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    ///
+    /// # Errors
+    /// Requires one published output; rejects invalid inputs and numerical failures.
+    pub fn value_and_gradient(&self, point: &[f64]) -> Result<(f64, Vec<f64>)> {
+        check_len("gradient outputs", self.outputs.len(), 1)?;
+        self.check_point(point)?;
+        let mut workspace = self.workspace();
+        let mut linearization = self.linearize(point, &mut workspace)?;
+        let mut gradient = vec![0.0; self.inputs];
+        linearization.vjp(&[1.0], &mut gradient)?;
+        Ok((linearization.value()?[0], gradient))
+    }
+}
+
+/// A scalar plan's gradient, evaluated with the same input order as the plan.
+pub struct Gradient<'p> {
+    plan: &'p Plan,
+}
+
+impl Gradient<'_> {
+    /// Evaluate the gradient and return an owned vector.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    ///
+    /// # Errors
+    /// Requires one published output; rejects invalid inputs and numerical failures.
+    pub fn eval(&self, point: &[f64]) -> Result<Vec<f64>> {
+        Ok(self.plan.value_and_gradient(point)?.1)
+    }
+}
+
+/// A plan's Jacobian, stored in an owned faer matrix.
+pub struct Jacobian<'p> {
+    plan: &'p Plan,
+}
+
+impl Jacobian<'_> {
+    /// Evaluate all partial derivatives; index as `matrix[(output, input)]`.
+    ///
+    /// See the [example](crate#one-operator-as-a-function).
+    ///
+    /// # Errors
+    /// Rejects invalid inputs, overflowing dimensions, and numerical failures.
+    pub fn eval(&self, point: &[f64]) -> Result<faer::Mat<f64>> {
+        self.plan.check_point(point)?;
+        let rows = self.plan.outputs.len();
+        let columns = self.plan.inputs;
+        let length = rows.checked_mul(columns).ok_or(Error::SizeOverflow)?;
+        std::alloc::Layout::array::<f64>(length).map_err(|_| Error::SizeOverflow)?;
+        let mut values = vec![0.0; length];
+        let mut workspace = self.plan.workspace();
+        self.plan
+            .linearize(point, &mut workspace)?
+            .jacobian(&mut values)?;
+        Ok(faer::Mat::from_fn(rows, columns, |row, column| {
+            values[row * columns + column]
+        }))
+    }
+}
+
+impl PlanExecution for Plan {
+    fn epoch(&self) -> u64 {
         self.epoch
     }
 
-    /// Dimensions of the composed numerical map.
-    pub const fn shape(&self) -> Shape {
-        Shape {
-            inputs: self.inputs,
-            outputs: self.outputs.len(),
-        }
-    }
-
     /// Sorted input indices that may affect each published output.
-    pub fn dependencies(&self) -> &[Vec<usize>] {
+    fn dependencies(&self) -> &[Vec<usize>] {
         &self.dependencies
-    }
-
-    /// Allocate reusable storage for this plan. Concurrent callers need separate workspaces.
-    pub fn workspace(&self) -> Workspace<'_> {
-        Workspace {
-            plan: self,
-            operators: self
-                .nodes
-                .iter()
-                .map(|node| node.operator.workspace())
-                .collect(),
-            values: vec![f64::NAN; self.slots],
-            result: vec![f64::NAN; self.outputs.len()],
-            derivatives: Vec::new(),
-            seeds: Vec::new(),
-            products: Vec::new(),
-            valid: false,
-        }
     }
 
     /// Evaluate values. Output is valid only on success.
     ///
     /// # Errors
     /// Rejects a foreign workspace or invalid buffers, and propagates operator failures.
-    pub fn evaluate(
+    fn evaluate(
         &self,
         point: &[f64],
         workspace: &mut Workspace<'_>,
@@ -307,7 +405,7 @@ impl Plan {
     ///
     /// # Errors
     /// Rejects a foreign workspace or invalid point, and propagates operator failures.
-    pub fn linearize<'a, 'p>(
+    fn linearize<'a, 'p>(
         &'p self,
         point: &'a [f64],
         workspace: &'a mut Workspace<'p>,
@@ -316,11 +414,35 @@ impl Plan {
         self.run(point, workspace, true)?;
         Ok(Linearization { point, workspace })
     }
+}
+
+impl Plan {
+    /// Allocate reusable storage for this plan. Concurrent callers need separate workspaces.
+    pub(crate) fn workspace(&self) -> Workspace<'_> {
+        Workspace {
+            plan: self,
+            operators: self
+                .nodes
+                .iter()
+                .map(|node| node.operator.workspace())
+                .collect(),
+            values: vec![f64::NAN; self.slots],
+            result: vec![f64::NAN; self.outputs.len()],
+            derivatives: Vec::new(),
+            seeds: Vec::new(),
+            products: Vec::new(),
+            valid: false,
+        }
+    }
 
     fn check(&self, point: &[f64], workspace: &Workspace<'_>) -> Result<()> {
         if !std::ptr::eq(self, workspace.plan) {
             return Err(Error::ForeignWorkspace);
         }
+        self.check_point(point)
+    }
+
+    fn check_point(&self, point: &[f64]) -> Result<()> {
         check_len("point", point.len(), self.inputs)?;
         check_finite("point", point)
     }
@@ -360,7 +482,10 @@ impl Plan {
 
 impl Operator for Plan {
     fn shape(&self) -> Shape {
-        self.shape()
+        Shape {
+            inputs: self.inputs,
+            outputs: self.outputs.len(),
+        }
     }
 
     fn workspace(&self) -> Box<dyn OperatorWorkspace + '_> {
@@ -384,7 +509,14 @@ pub struct Workspace<'p> {
     valid: bool,
 }
 
-impl Workspace<'_> {
+impl<'p> Workspace<'p> {
+    /// Allocate reusable execution storage for one plan.
+    ///
+    /// See the [example](crate::advanced#plan-execution).
+    pub fn new(plan: &'p Plan) -> Self {
+        plan.workspace()
+    }
+
     fn invalidate(&mut self) {
         self.valid = false;
         self.result.fill(f64::NAN);
@@ -408,14 +540,20 @@ impl OperatorWorkspace for Workspace<'_> {
         Ok(())
     }
 
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     fn jvp(&mut self, input: &[f64], seed: &[f64], output: &mut [f64]) -> Result<()> {
         self.jvp_batch(input, 1, seed, output)
     }
 
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     fn vjp(&mut self, input: &[f64], seed: &[f64], output: &mut [f64]) -> Result<()> {
         self.vjp_batch(input, 1, seed, output)
     }
 
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     fn jvp_batch(
         &mut self,
         input: &[f64],
@@ -430,6 +568,8 @@ impl OperatorWorkspace for Workspace<'_> {
         .jvp_batch(count, seeds, output)
     }
 
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     fn vjp_batch(
         &mut self,
         input: &[f64],
@@ -456,8 +596,9 @@ impl OperatorWorkspace for Workspace<'_> {
 /// ```compile_fail
 /// use mercury::{Plan, Source};
 /// let plan = Plan::builder(1).build([Source::Input(0)]).unwrap();
-/// let mut workspace = plan.workspace();
+/// let mut workspace = mercury::advanced::Workspace::new(&plan);
 /// let mut point = [1.0];
+/// use mercury::advanced::PlanExecution;
 /// let linearization = plan.linearize(&point, &mut workspace).unwrap();
 /// point[0] = 2.0;
 /// assert!(linearization.value().is_ok());
@@ -470,6 +611,8 @@ pub struct Linearization<'a, 'p> {
 impl Linearization<'_, '_> {
     /// The successfully prepared primal value.
     ///
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     /// # Errors
     /// Returns `InvalidLinearization` after a numerical failure.
     pub fn value(&self) -> Result<&[f64]> {
@@ -479,6 +622,8 @@ impl Linearization<'_, '_> {
 
     /// Apply one input tangent.
     ///
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     /// # Errors
     /// Same validation and numerical failures as [`Self::jvp_batch`].
     pub fn jvp(&mut self, seed: &[f64], output: &mut [f64]) -> Result<()> {
@@ -487,6 +632,8 @@ impl Linearization<'_, '_> {
 
     /// Apply one output cotangent.
     ///
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     /// # Errors
     /// Same validation and numerical failures as [`Self::vjp_batch`].
     pub fn vjp(&mut self, seed: &[f64], output: &mut [f64]) -> Result<()> {
@@ -494,6 +641,8 @@ impl Linearization<'_, '_> {
     }
 
     /// Apply `count` contiguous input seed rows and overwrite contiguous output rows.
+    ///
+    /// See the [example](crate::advanced#linearization-products).
     ///
     /// # Errors
     /// Rejects invalid linearizations, shapes, size overflow, and non-finite seeds.
@@ -504,6 +653,8 @@ impl Linearization<'_, '_> {
 
     /// Apply `count` contiguous output seed rows and overwrite contiguous input rows.
     ///
+    /// See the [example](crate::advanced#linearization-products).
+    ///
     /// # Errors
     /// Same validation and failure semantics as [`Self::jvp_batch`].
     pub fn vjp_batch(&mut self, count: usize, seeds: &[f64], output: &mut [f64]) -> Result<()> {
@@ -511,6 +662,8 @@ impl Linearization<'_, '_> {
     }
 
     /// Assemble the dense Jacobian in row-major output-by-input order.
+    ///
+    /// See the [example](crate::advanced#linearization-products).
     ///
     /// # Errors
     /// Rejects invalid dimensions or linearizations, and propagates product failures.

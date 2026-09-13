@@ -10,6 +10,7 @@ and the adjoint identity. The implementation adds:
 | Boundary | Evidence |
 | --- | --- |
 | Typed function API | Rosenbrock gradients and combined calls, rectangular Jacobians against analytic and finite-difference oracles, graph composition, nonfinite results and independent calls after failure |
+| Simple plan API | Owned values and gradients, faer Jacobian layout, scalar-output validation, solves, error recovery and empty outputs |
 | Kernel macro/adapter | Analytic derivatives, inactive configuration, runtime dimensions, batches, preserved seeds, domain and buffer failures |
 | Runtime plan | Fan-out, repeated inputs/outputs, finite differences, adjoint identity, Jacobian assembly, cycle/foreign-handle rejection, failure recovery |
 | Solves | Pivoted nonsymmetric systems, perturb-and-resolve, cached products, final-root Jacobian, composed residual plans, singularity/nonconvergence |
@@ -18,6 +19,11 @@ and the adjoint identity. The implementation adds:
 A compile-fail doctest checks that a borrowed linearization prevents mutation
 of its point. These checks establish the tested numerical paths, not general
 Enzyme compatibility or performance bounds.
+
+The examples in `docs/api.md` and `docs/advanced.md` are included in rustdoc and
+executed by the normal test command. `RUSTDOCFLAGS` supplies Enzyme and release
+code-generation settings because doctest compilation does not inherit Cargo's
+release profile. The checkpointed flight fixture is in `tests/support/flight.rs`.
 
 The environment in `nix/rust-toolchain.nix` pins Rust nightly `2026-06-23`
 with its matching distributed `enzyme` component for `x86_64-linux`.

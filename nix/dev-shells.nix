@@ -22,6 +22,8 @@
     ]);
 
     RUSTFLAGS = "-Zautodiff=Enable";
+    # Rustdoc compiles examples separately from Cargo's release profile.
+    RUSTDOCFLAGS = "-Zautodiff=Enable -Clto=fat -Ccodegen-units=1 -Copt-level=3";
     MERCURY_ENZYME_SHELL = "1";
 
     shellHook = ''

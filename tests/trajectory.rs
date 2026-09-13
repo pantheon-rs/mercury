@@ -2,10 +2,11 @@
 
 //! Numerical and derivative checks for the complete planar-flight step graph.
 
-#[path = "../examples/flight/model.rs"]
+#[path = "support/flight.rs"]
 mod model;
 
 use mercury::Plan;
+use mercury::advanced::PlanExecution;
 use model::{
     FlightConfig, HeldInput, INPUTS, OUTPUTS, Parameters, STATES, State, Target, flight_plan,
     held_history, point, rk4_step, rollout, trajectory_vjp,
@@ -64,7 +65,7 @@ fn trajectory_jvp(
     history: &[HeldInput],
     direction: &[f64; 10],
 ) -> mercury::Result<f64> {
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(plan);
     let mut state = initial;
     let mut state_tangent = [0.0; STATES];
     state_tangent.copy_from_slice(&direction[..STATES]);

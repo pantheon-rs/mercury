@@ -7,7 +7,11 @@
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
 
-  filteredSrc = craneLib.cleanCargoSource src;
+  # Public API guides are included in the crate's rustdoc and executed as doctests.
+  filteredSrc = pkgs.lib.cleanSourceWith {
+    inherit src;
+    filter = path: type: (craneLib.filterCargoSources path type) || pkgs.lib.hasSuffix ".md" path;
+  };
 
   commonArgs = {
     pname = cargoToml.package.name;
@@ -18,6 +22,7 @@ let
     # code. Fat LTO comes from Cargo.toml's release profile; crane builds
     # release by default.
     RUSTFLAGS = "-Zautodiff=Enable";
+    RUSTDOCFLAGS = "-Zautodiff=Enable -Clto=fat -Ccodegen-units=1 -Copt-level=3";
   };
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;

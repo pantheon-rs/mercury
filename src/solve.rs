@@ -19,6 +19,8 @@ pub struct DenseSolve {
 impl DenseSolve {
     /// Construct a square solve of positive dimension.
     ///
+    /// See the [example](crate#one-operator-as-a-function).
+    ///
     /// # Errors
     /// Rejects zero dimensions and overflowing input sizes.
     pub fn new(dimension: usize) -> Result<Self> {
@@ -147,6 +149,8 @@ pub struct ImplicitSolve {
 
 impl ImplicitSolve {
     /// Construct a residual solve with an explicit initial guess.
+    ///
+    /// See the [example](crate#implicit-roots).
     ///
     /// # Errors
     /// Rejects inconsistent residual dimensions, non-finite initial values,

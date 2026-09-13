@@ -21,12 +21,7 @@ fn main() -> mercury::Result<()> {
     let plan = builder.build([result.output(0)])?;
 
     let point = [3.0];
-    let mut workspace = plan.workspace();
-    let mut linearization = plan.linearize(&point, &mut workspace)?;
-    let value = linearization.value()?[0];
-    let mut gradient = [0.0];
-    // Both paths from x contribute: d(x² + x)/dx = 2x + 1.
-    linearization.vjp(&[1.0], &mut gradient)?;
+    let (value, gradient) = plan.value_and_gradient(&point)?;
 
     println!("f(x) = x² + x; x = {}", point[0]);
     println!("f(x) = {value}; df/dx = {}", gradient[0]);

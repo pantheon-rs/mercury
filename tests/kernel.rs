@@ -2,7 +2,8 @@
 
 //! Compiled kernel adapters: derivatives, buffers, configuration, and failures.
 
-use mercury::{Error, Operator, Shape, differentiable};
+use mercury::Error;
+use mercury::advanced::{Operator, Shape, differentiable};
 
 struct Config {
     scale: f64,

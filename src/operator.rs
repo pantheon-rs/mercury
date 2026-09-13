@@ -14,12 +14,18 @@ pub struct Shape {
 /// An immutable numerical implementation, shared by plan evaluations.
 pub trait Operator: Send + Sync {
     /// Fixed dimensions of this instance.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn shape(&self) -> Shape;
 
     /// Allocate local storage once for a plan workspace.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn workspace(&self) -> Box<dyn OperatorWorkspace + '_>;
 
     /// Conservative dependency of one output on one input.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn depends_on(&self, _output: usize, _input: usize) -> bool {
         true
     }
@@ -38,20 +44,30 @@ pub trait Operator: Send + Sync {
 #[allow(clippy::missing_errors_doc)] // The shared failure contract applies to every method.
 pub trait OperatorWorkspace {
     /// Evaluate without requiring derivative caches.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn evaluate(&mut self, input: &[f64], output: &mut [f64]) -> Result<()>;
 
     /// Evaluate and prepare any caches needed for derivatives at this point.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn linearize(&mut self, input: &[f64], output: &mut [f64]) -> Result<()> {
         self.evaluate(input, output)
     }
 
     /// Write a Jacobian-vector product.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn jvp(&mut self, input: &[f64], seed: &[f64], output: &mut [f64]) -> Result<()>;
 
     /// Write a transpose-Jacobian-vector product.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn vjp(&mut self, input: &[f64], seed: &[f64], output: &mut [f64]) -> Result<()>;
 
     /// Apply contiguous seed rows; implementations may use compiled batch widths.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn jvp_batch(
         &mut self,
         input: &[f64],
@@ -75,6 +91,8 @@ pub trait OperatorWorkspace {
     }
 
     /// Apply contiguous cotangent rows, preserving all caller seeds.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn vjp_batch(
         &mut self,
         input: &[f64],
@@ -98,5 +116,7 @@ pub trait OperatorWorkspace {
     }
 
     /// Discard numerical caches after a failed evaluation or derivative.
+    ///
+    /// See the [example](crate::advanced#operator-contract).
     fn invalidate(&mut self) {}
 }

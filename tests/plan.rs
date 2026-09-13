@@ -1,6 +1,7 @@
 //! Numerical and lifecycle checks independent of the compiler adapter.
 
-use mercury::{Error, Operator, OperatorWorkspace, Plan, Result, Shape, Source};
+use mercury::advanced::{Operator, OperatorWorkspace, PlanExecution, Shape};
+use mercury::{Error, Plan, Result, Source};
 
 struct Polynomial;
 
@@ -110,7 +111,7 @@ fn composition_matches_directional_difference_and_adjoint_identity() {
     let point = [1.2, -0.7, 0.4];
     let direction = [0.3, -0.4, 0.8];
     let weights = [0.5, -1.1, 0.8, 0.3, 0.6];
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut tangent = [0.0; 5];
     let mut cotangent = [0.0; 3];
     let mut jacobian = [0.0; 15];
@@ -160,7 +161,7 @@ fn composition_matches_directional_difference_and_adjoint_identity() {
 fn batches_preserve_seeds_and_match_independent_calls() {
     let plan = composed_plan();
     let point = [0.8, 0.2, -0.4];
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut linearization = plan.linearize(&point, &mut workspace).unwrap();
     let seeds = [
         0.2, -0.3, 0.1, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, -0.1, 0.7, 0.4,
@@ -198,7 +199,7 @@ fn wiring_checks_forward_references_cycles_and_foreign_nodes() {
         .connect(first, [second.output(0), Source::Input(1)])
         .unwrap();
     let plan = builder.build([first.output(0)]).unwrap();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut value = [0.0];
     plan.evaluate(&[2.0, 3.0], &mut workspace, &mut value)
         .unwrap();
@@ -232,7 +233,7 @@ fn wiring_checks_forward_references_cycles_and_foreign_nodes() {
 fn argument_errors_leave_a_valid_linearization_usable() {
     let plan = composed_plan();
     let other = composed_plan();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     assert!(matches!(
         other.linearize(&[0.0; 3], &mut workspace),
         Err(Error::ForeignWorkspace)
@@ -299,7 +300,7 @@ fn numerical_failures_invalidate_entire_batches_and_allow_fresh_preparation() {
     let mut builder = Plan::builder(1);
     let node = builder.add(Fails, [Source::Input(0)]);
     let plan = builder.build([node.output(0)]).unwrap();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     {
         let mut linearization = plan.linearize(&[1.0], &mut workspace).unwrap();
         let mut out = [0.0; 2];
@@ -321,14 +322,14 @@ fn empty_plans_and_repeated_published_outputs_have_correct_products() {
     let plan = Plan::builder(1)
         .build([Source::Input(0), Source::Input(0)])
         .unwrap();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut linearization = plan.linearize(&[3.0], &mut workspace).unwrap();
     let mut output = [0.0];
     linearization.vjp(&[2.0, 4.0], &mut output).unwrap();
     close(&output, &[6.0], 0.0);
 
     let empty = Plan::builder(0).build([]).unwrap();
-    let mut workspace = empty.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&empty);
     let mut linearization = empty.linearize(&[], &mut workspace).unwrap();
     linearization.jvp_batch(3, &[], &mut []).unwrap();
     linearization.vjp_batch(3, &[], &mut []).unwrap();
@@ -377,7 +378,7 @@ fn allocation_layout_overflow_is_rejected_before_dispatch() {
     let mut builder = Plan::builder(0);
     builder.add(Constant, []);
     let plan = builder.build([]).unwrap();
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut linearization = plan.linearize(&[], &mut workspace).unwrap();
     assert_eq!(
         linearization.jvp_batch(usize::MAX, &[], &mut []),

@@ -54,17 +54,17 @@ Function bodies must be deterministic and differentiable at the requested point;
 finite checks cannot establish differentiability or catch panics.
 
 Continue through the [small examples](examples/README.md): arithmetic,
-elementary functions, Jacobians, composition, derivative products, and solves.
-See [the function API](docs/functions.md) for exact call and storage contracts.
+elementary functions, Jacobians, composition, and solves.
+See [the function API](docs/api.md) for exact call and storage contracts.
 
 For graphs, pass the same function instance to `builder.add(function, sources)`.
-The lower-level `#[differentiable(inputs = n, outputs = m)]` slice interface
+The advanced `#[mercury::advanced::differentiable(inputs = n, outputs = m)]` interface
 supports inactive configuration, runtime dimensions, and `.with_domain(validator)`.
 Put every value whose derivative you need in its input slice.
 
-Linearizations expose values, JVPs, VJPs, contiguous batches, and row-major dense
-Jacobians. A plan is itself an operator, so residual groups can be composed and
-wrapped in `ImplicitSolve`. Numerical failures require fresh preparation.
+Plans expose the same calculation names as typed functions and manage their own
+scratch. Use [advanced execution](docs/advanced.md) only for explicit workspaces,
+derivative products, and custom operators.
 
 Read [the architecture](docs/architecture.md) for the design. [Validation](docs/validation.md)
 records the supported toolchain, checks, and earlier compiler findings.
@@ -83,8 +83,9 @@ Scripts enter it automatically.
 Pass example arguments with `./scripts/example.sh NAME -- ARGS...`.
 For direct Cargo commands, enter `nix develop` and use `--release`.
 
-The advanced [flight example](examples/flight.rs) composes a planar RK4 step and terminal
-objective, then computes trajectory sensitivities with checkpoint replay.
+The [flight example](examples/flight.rs) composes 100 vertical-flight steps and
+evaluates the final state and its Jacobian. Checkpointed planar RK4 remains
+covered by the trajectory regression tests.
 
 The current scope is first order and dense solves. Batches use scalar loops;
 native batch acceleration, sparse assembly, exact second derivatives, and

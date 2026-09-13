@@ -1,4 +1,4 @@
-//! Compiled differentiable functions and runtime numerical plans.
+#![doc = include_str!("../docs/api.md")]
 #![forbid(unsafe_code)]
 
 mod error;
@@ -8,11 +8,13 @@ mod plan;
 mod solve;
 
 pub use error::{Error, Result};
-pub use kernel::Kernel;
-pub use mercury_macros::{differentiable, function};
-pub use operator::{Operator, OperatorWorkspace, Shape};
-pub use plan::{Linearization, NodeId, Plan, PlanBuilder, Source, Workspace};
+pub use mercury_macros::function;
+pub use plan::{Gradient, Jacobian, NodeId, Plan, PlanBuilder, Source};
 pub use solve::{DenseSolve, ImplicitSolve};
+
+pub mod advanced;
+
+pub(crate) use advanced::{Operator, OperatorWorkspace, PlanExecution, Shape};
 
 /// Support for generated code; not a user-facing API.
 #[doc(hidden)]

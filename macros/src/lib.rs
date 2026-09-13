@@ -15,7 +15,7 @@ mod function;
 /// or `[f64; N]` with a positive integer literal length. All arguments are active.
 /// Scalar functions expose `gradient()` and `value_and_gradient()`; array-returning
 /// functions expose `jacobian()`. Derivatives follow argument declaration order.
-/// The generated type also implements `mercury::Operator` for graph composition.
+/// The generated type also implements `mercury::advanced::Operator` for graph composition.
 ///
 /// Function bodies must be deterministic, without external mutation, and valid
 /// on their documented domains. Checked calls reject nonfinite inputs, values
@@ -39,7 +39,7 @@ pub fn function(arguments: TokenStream, item: TokenStream) -> TokenStream {
 /// The consuming crate needs `#![feature(autodiff)]` and the Enzyme toolchain.
 ///
 /// ```ignore
-/// #[mercury::differentiable(inputs = 2, outputs = 1)]
+/// #[mercury::advanced::differentiable(inputs = 2, outputs = 1)]
 /// fn energy(config: &Config, input: &[f64], output: &mut [f64]) {
 ///     output[0] = config.scale * (input[0] * input[0] + input[1] * input[1]);
 /// }
@@ -204,9 +204,9 @@ fn expand(
         #(#conditions)*
         #[doc = concat!("Constructs a checked differentiable operator for [`", stringify!(#name), "`].")]
         #[allow(clippy::used_underscore_binding)]
-        #visibility fn #constructor(#config_name: #config_type) -> ::mercury::Kernel<#config_type> {
-            let #shape = ::mercury::Shape { inputs: #inputs, outputs: #outputs };
-            ::mercury::Kernel::new(#config_name, #shape, #module::primal, #module::jvp, #module::vjp)
+        #visibility fn #constructor(#config_name: #config_type) -> ::mercury::advanced::Kernel<#config_type> {
+            let #shape = ::mercury::advanced::Shape { inputs: #inputs, outputs: #outputs };
+            ::mercury::advanced::Kernel::new(#config_name, #shape, #module::primal, #module::jvp, #module::vjp)
         }
     })
 }

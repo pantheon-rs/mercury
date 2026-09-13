@@ -1,47 +1,49 @@
 #![feature(autodiff)]
 
-//! Planar flight with compiled RK4 kernels, runtime composition, and a
-//! checkpointed terminal-objective adjoint. Run with `./scripts/example.sh flight`.
+//! Compose 100 vertical-flight steps and differentiate the final state.
 
-#[path = "flight/model.rs"]
-mod model;
+use mercury::{Plan, Source, function};
 
-use model::{FlightConfig, Parameters, Target, flight_plan, held_history, rollout, trajectory_vjp};
+#[function(FlightStep)]
+fn flight_step(height: f64, velocity: f64, mass: f64, thrust: f64) -> [f64; 2] {
+    let dt = 0.01;
+    let acceleration = thrust / mass - 9.806_65;
+    [
+        height + velocity * dt + 0.5 * acceleration * dt * dt,
+        velocity + acceleration * dt,
+    ]
+}
 
 fn main() -> mercury::Result<()> {
-    let plan = flight_plan(
-        FlightConfig {
-            dt: 0.02,
-            gravity: 9.806_65,
-            linear_drag: 0.4,
-        },
-        Target { x: 75.0, z: 101.0 },
-    )?;
-    let parameters = Parameters {
-        mass: 50.0,
-        inertia: 25.0,
-        thrust_scale: 1.0,
-        torque_scale: 1.0,
-    };
-    let initial = [0.0, 100.0, 30.0, 0.0, 0.9, 0.02];
-    let history = held_history(100);
-    let direct = rollout(&plan, initial, parameters, &history)?;
-    let (replayed, gradient) = trajectory_vjp(&plan, initial, parameters, &history, 20)?;
+    // Global inputs: initial height, initial velocity, mass, thrust.
+    let mut builder = Plan::builder(4);
+    let mut height = Source::Input(0);
+    let mut velocity = Source::Input(1);
+    for _ in 0..100 {
+        let step = builder.add(
+            FlightStep::new(),
+            [height, velocity, Source::Input(2), Source::Input(3)],
+        );
+        height = step.output(0);
+        velocity = step.output(1);
+    }
+    let flight = builder.build([height, velocity])?;
+    let point = [100.0, 0.0, 2.0, 20.0];
+    let final_state = flight.eval(&point)?;
+    let jacobian = flight.jacobian().eval(&point)?;
 
-    println!("Planar flight: 100 RK4 steps, 0.02 s per step");
     println!(
-        "Final position: x={:.6} m, z={:.6} m",
-        direct.state[0], direct.state[1]
+        "After 1 second: height = {:.6}, velocity = {:.6}",
+        final_state[0], final_state[1]
     );
-    println!("Final pitch: {:.6} rad", direct.state[4]);
-    println!("Terminal objective: {:.9}", direct.score);
     println!(
-        "Replay objective difference: {:.3e}",
-        replayed.score - direct.score
+        "Sensitivity to mass: height = {:.6}, velocity = {:.6}",
+        jacobian[(0, 2)],
+        jacobian[(1, 2)]
     );
-    println!("Sensitivity to mass: {:.9}", gradient[6]);
-    println!("Sensitivity to pitch inertia: {:.9}", gradient[7]);
-    println!("Sensitivity to thrust scale: {:.9}", gradient[8]);
-    println!("Sensitivity to torque scale: {:.9}", gradient[9]);
+    assert!((final_state[0] - 100.096_675).abs() < 1e-10);
+    assert!((final_state[1] - 0.193_35).abs() < 1e-10);
+    assert!((jacobian[(0, 2)] + 2.5).abs() < 1e-10);
+    assert!((jacobian[(1, 2)] + 5.0).abs() < 1e-10);
     Ok(())
 }

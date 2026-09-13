@@ -2,6 +2,7 @@
 
 //! Typed calls agree with analytic derivatives and the runtime graph boundary.
 
+use mercury::advanced::PlanExecution;
 use mercury::{Error, Plan, Source, function};
 
 #[function(Rosenbrock)]
@@ -176,7 +177,7 @@ fn typed_functions_compose_with_shared_and_reordered_graph_inputs() {
         .build([objective.output(0), polynomial.output(1)])
         .unwrap();
     let point = [0.7, -0.3];
-    let mut workspace = plan.workspace();
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut linearization = plan.linearize(&point, &mut workspace).unwrap();
     let values = Polynomial::new().eval(point[1], point[0]).unwrap();
     let (objective_value, gradient) = Rosenbrock::new()
@@ -204,4 +205,66 @@ fn typed_functions_compose_with_shared_and_reordered_graph_inputs() {
         &[reverse[0] * 0.2 - reverse[1] * 0.4],
         1e-10,
     );
+}
+
+#[test]
+fn simple_plan_calls_return_owned_values_and_mathematical_derivatives() {
+    let scalar = Plan::from_operator(Rosenbrock::new()).unwrap();
+    let gradient = scalar.gradient();
+    let value = scalar.eval(&[-1.2, 1.0]).unwrap();
+    let derivatives = gradient.eval(&[-1.2, 1.0]).unwrap();
+    close(&value, &[24.2], 1e-12);
+    close(&derivatives, &[-215.6, -88.0], 1e-10);
+    let (value, derivatives) = scalar.value_and_gradient(&[1.0, 1.0]).unwrap();
+    close(&[value], &[0.0], 1e-12);
+    close(&derivatives, &[0.0, 0.0], 1e-12);
+
+    let vector = Plan::from_operator(Polynomial::new()).unwrap();
+    let jacobian = vector.jacobian().eval(&[2.0, 3.0]).unwrap();
+    assert_eq!((jacobian.nrows(), jacobian.ncols()), (3, 2));
+    for (row, expected) in [[4.0, 1.0], [3.0, 2.0], [1.0, -18.0]].iter().enumerate() {
+        for (column, expected) in expected.iter().enumerate() {
+            close(&[jacobian[(row, column)]], &[*expected], 1e-12);
+        }
+    }
+    assert!(matches!(
+        vector.gradient().eval(&[2.0, 3.0]),
+        Err(Error::Dimension {
+            buffer: "gradient outputs",
+            expected: 1,
+            actual: 3
+        })
+    ));
+
+    let solve = Plan::from_operator(mercury::DenseSolve::new(1).unwrap()).unwrap();
+    let (solution, gradient) = solve.value_and_gradient(&[2.0, 6.0]).unwrap();
+    close(&[solution], &[3.0], 1e-12);
+    close(&gradient, &[-1.5, 0.5], 1e-12);
+}
+
+#[test]
+fn simple_plan_failures_are_independent_and_empty_jacobians_keep_their_shape() {
+    let plan = Plan::from_operator(Root::new()).unwrap();
+    assert!(matches!(plan.eval(&[]), Err(Error::Dimension { .. })));
+    assert_eq!(
+        plan.gradient().eval(&[f64::NAN]),
+        Err(Error::NonFinite("point"))
+    );
+    assert!(plan.jacobian().eval(&[f64::INFINITY]).is_err());
+    assert!(matches!(
+        plan.value_and_gradient(&[-1.0]),
+        Err(Error::Operator { .. })
+    ));
+    let (value, gradient) = plan.value_and_gradient(&[4.0]).unwrap();
+    close(&[value], &[2.0], 1e-12);
+    close(&gradient, &[0.25], 1e-12);
+    let owned_value = plan.eval(&[9.0]).unwrap();
+    assert!(plan.eval(&[-1.0]).is_err());
+    close(&owned_value, &[3.0], 1e-12);
+
+    let empty = Plan::builder(2).build([]).unwrap();
+    let jacobian = empty.jacobian().eval(&[1.0, 2.0]).unwrap();
+    assert_eq!((jacobian.nrows(), jacobian.ncols()), (0, 2));
+    assert!(empty.eval(&[1.0, 2.0]).unwrap().is_empty());
+    assert!(empty.gradient().eval(&[1.0, 2.0]).is_err());
 }

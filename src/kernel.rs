@@ -10,7 +10,7 @@ type Domain<C> = fn(&C, &[f64]) -> Result<()>;
 
 /// A compiled numerical kernel with owned, immutable inactive configuration.
 ///
-/// Usually constructed by [`crate::differentiable`]. Each workspace owns its
+/// Usually constructed by [`crate::advanced::differentiable`]. Each workspace owns its
 /// scratch buffers; generated reverse functions never consume caller seeds.
 pub struct Kernel<C> {
     config: C,
@@ -24,9 +24,11 @@ pub struct Kernel<C> {
 impl<C> Kernel<C> {
     /// Construct from primal and derivative callbacks in the Enzyme argument order.
     ///
+    /// See the [example](crate::advanced#manual-kernel-callbacks).
+    ///
     /// Callbacks must overwrite all primal outputs and implement the declared
     /// dimensions. Reverse callbacks accumulate into the supplied input shadow.
-    /// Prefer the generated constructor from [`crate::differentiable`].
+    /// Prefer the generated constructor from [`crate::advanced::differentiable`].
     pub const fn new(
         config: C,
         shape: Shape,
@@ -45,6 +47,8 @@ impl<C> Kernel<C> {
     }
 
     /// Check a kernel's domain outside differentiated code before each call.
+    ///
+    /// See the [example](crate::advanced#configured-kernels).
     #[must_use]
     pub fn with_domain(mut self, domain: Domain<C>) -> Self {
         self.domain = Some(domain);

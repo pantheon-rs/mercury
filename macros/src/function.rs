@@ -195,13 +195,13 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
         }
 
         #(#conditions)*
-        impl ::mercury::Operator for #type_name {
-            fn shape(&self) -> ::mercury::Shape {
-                ::mercury::Operator::shape(&#module::KERNEL)
+        impl ::mercury::advanced::Operator for #type_name {
+            fn shape(&self) -> ::mercury::advanced::Shape {
+                ::mercury::advanced::Operator::shape(&#module::KERNEL)
             }
 
-            fn workspace(&self) -> Box<dyn ::mercury::OperatorWorkspace + '_> {
-                ::mercury::Operator::workspace(&#module::KERNEL)
+            fn workspace(&self) -> Box<dyn ::mercury::advanced::OperatorWorkspace + '_> {
+                ::mercury::advanced::Operator::workspace(&#module::KERNEL)
             }
         }
 
@@ -210,8 +210,8 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
         #visibility mod #module {
             use ::mercury::__private::check_finite;
 
-            pub(super) static KERNEL: ::mercury::Kernel<()> = ::mercury::Kernel::new(
-                (), ::mercury::Shape { inputs: #inputs, outputs: #outputs }, primal, jvp, vjp,
+            pub(super) static KERNEL: ::mercury::advanced::Kernel<()> = ::mercury::advanced::Kernel::new(
+                (), ::mercury::advanced::Shape { inputs: #inputs, outputs: #outputs }, primal, jvp, vjp,
             );
 
             #[::std::autodiff::autodiff_forward(jvp, Const, Dual, Dual)]

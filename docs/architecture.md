@@ -11,7 +11,9 @@ matrix/primitive implementation at `58d2f49`.
 Start with `#[function(Name)]` on an ordinary scalar-argument Rust function.
 Its named type exposes checked `eval` and scalar `gradient` or vector `jacobian`
 calls, returning owned values. The same type implements `Operator` for plans.
-See [function contracts](functions.md) for supported signatures and call costs.
+See [API examples](api.md) for supported signatures and call costs. Plan values,
+gradients and Jacobians use the same simple names. Explicit execution and
+operator-authoring contracts live in [advanced](advanced.md).
 
 ```mermaid
 flowchart TD
@@ -244,7 +246,7 @@ storage for replay; retaining every operator tape is not required. Choose that
 policy from measured memory use. Icarus owns trajectory history; Mercury owns
 numerical replay of each prepared plan. History must retain or reconstruct each
 immutable plan and its configuration; an epoch number alone is insufficient.
-The flight example demonstrates a fixed checkpoint stride in host code;
+The trajectory regression fixture demonstrates a fixed checkpoint stride in host code;
 Mercury does not choose a trajectory storage policy.
 
 The initial API guarantees first-order derivatives within fixed modes and

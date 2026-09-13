@@ -3,6 +3,7 @@
 use std::fmt;
 
 /// A failed validation, evaluation, or derivative application.
+/// See the [example](crate#errors-and-ownership).
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// A buffer has the wrong length.
@@ -44,6 +45,7 @@ pub enum Error {
 }
 
 /// A checked numerical result.
+/// See the [example](crate#errors-and-ownership).
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {
