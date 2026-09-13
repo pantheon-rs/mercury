@@ -9,28 +9,18 @@ them in immutable runtime plans. The host owns simulation state and time.
 - Mercury propagates derivatives through shared inputs and runtime connections.
 - faer supplies factorizations behind explicit linear and implicit solve rules.
 
-```rust
-#![feature(autodiff)]
-use mercury::{Plan, Source, differentiable};
+Start with a function and its gradient:
 
-#[differentiable(inputs = 2, outputs = 1)]
-fn energy(scale: &f64, q: &[f64], y: &mut [f64]) {
-    y[0] = scale * (q[0] * q[0] + q[1] * q[1]);
-}
-
-fn main() -> mercury::Result<()> {
-    let mut builder = Plan::builder(2);
-    let energy = builder.add(energy_operator(0.5), [Source::Input(0), Source::Input(1)]);
-    let plan = builder.build([energy.output(0)])?;
-    let mut workspace = plan.workspace();
-    let point = [3.0, 4.0];
-    let mut linearization = plan.linearize(&point, &mut workspace)?;
-    let mut gradient = [0.0; 2];
-    linearization.vjp(&[1.0], &mut gradient)?;
-    assert_eq!(gradient, [3.0, 4.0]);
-    Ok(())
-}
+```sh
+./scripts/example.sh rosenbrock
 ```
+
+For `f(x, y) = (1 - x)² + 100(y - x²)²`, at `(-1.2, 1)` this gives
+`f = 24.2` and `gradient = [-215.6, -88]`.
+The [complete example](examples/rosenbrock.rs) fits in one file.
+
+Continue through the [small examples](examples/README.md): arithmetic,
+elementary functions, derivative products, Jacobians, composition, and solves.
 
 Configuration is inactive. Put every value whose derivative you need in `q`.
 The macro also supports dimensions taken from configuration and
@@ -40,7 +30,7 @@ Linearizations expose values, JVPs, VJPs, contiguous batches, and row-major dens
 Jacobians. A plan is itself an operator, so residual groups can be composed and
 wrapped in `ImplicitSolve`. Numerical failures require fresh preparation.
 
-Start with [the architecture](docs/architecture.md). [Validation](docs/validation.md)
+Read [the architecture](docs/architecture.md) for the design. [Validation](docs/validation.md)
 records the supported toolchain, checks, and earlier compiler findings.
 
 ## Development
@@ -50,14 +40,14 @@ Scripts enter it automatically.
 
 ```sh
 ./scripts/example.sh --list
-./scripts/example.sh flight
+./scripts/example.sh rosenbrock
 ./scripts/ci.sh
 ```
 
 Pass example arguments with `./scripts/example.sh NAME -- ARGS...`.
 For direct Cargo commands, enter `nix develop` and use `--release`.
 
-The [flight example](examples/flight.rs) composes a planar RK4 step and terminal
+The advanced [flight example](examples/flight.rs) composes a planar RK4 step and terminal
 objective, then computes trajectory sensitivities with checkpoint replay.
 
 The current scope is first order and dense solves. Batches use scalar loops;
