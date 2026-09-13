@@ -1,8 +1,7 @@
 #![feature(autodiff)]
 
 //! Planar flight with compiled RK4 kernels, runtime composition, and a
-//! checkpointed terminal-objective adjoint. Run with `cargo run --release
-//! --example flight` inside the pinned development shell.
+//! checkpointed terminal-objective adjoint. Run with `./scripts/example.sh flight`.
 
 #[path = "flight/model.rs"]
 mod model;

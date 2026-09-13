@@ -46,13 +46,16 @@ records the supported toolchain, checks, and earlier compiler findings.
 ## Development
 
 The pinned environment targets `x86_64-linux` and uses release builds with fat LTO.
+Scripts enter it automatically.
 
 ```sh
-nix develop
-./scripts/build.sh
+./scripts/example.sh --list
+./scripts/example.sh flight
 ./scripts/ci.sh
-cargo run --release --example flight
 ```
+
+Pass example arguments with `./scripts/example.sh NAME -- ARGS...`.
+For direct Cargo commands, enter `nix develop` and use `--release`.
 
 The [flight example](examples/flight.rs) composes a planar RK4 step and terminal
 objective, then computes trajectory sensitivities with checkpoint replay.
