@@ -2,20 +2,17 @@
 
 //! Apply several derivative seeds at one point. Each seed and result is a row.
 
-use mercury::{Plan, Source, differentiable};
+use mercury::{Plan, Source, function};
 
-#[differentiable(inputs = 2, outputs = 2)]
-fn function(_config: &(), input: &[f64], output: &mut [f64]) {
-    let x = input[0];
-    let y = input[1];
-    output[0] = x * x;
-    output[1] = x * y;
+#[function(Polynomial)]
+fn polynomial(x: f64, y: f64) -> [f64; 2] {
+    [x * x, x * y]
 }
 
 fn main() -> mercury::Result<()> {
     let mut builder = Plan::builder(2);
-    let function = builder.add(function_operator(()), [Source::Input(0), Source::Input(1)]);
-    let plan = builder.build([function.output(0), function.output(1)])?;
+    let node = builder.add(Polynomial::new(), [Source::Input(0), Source::Input(1)]);
+    let plan = builder.build([node.output(0), node.output(1)])?;
     let mut workspace = plan.workspace();
     let point = [2.0, 3.0];
     let mut linearization = plan.linearize(&point, &mut workspace)?;

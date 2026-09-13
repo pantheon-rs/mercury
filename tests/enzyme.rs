@@ -12,6 +12,25 @@ fn evaluate(x: &[f64], y: &mut [f64]) {
     y[2] = x[0] - 3.0 * x[1] * x[1];
 }
 
+#[autodiff_forward(overflow_jvp, Dual, Dual)]
+fn overflow_scale(x: &[f64], y: &mut [f64]) {
+    y[0] = (x[0] * f64::MAX) * 2.0;
+}
+
+#[test]
+#[ignore = "pinned Enzyme returns zero when constant forward derivative arithmetic overflows"]
+fn constant_scaling_reports_derivative_overflow() {
+    let mut value = [0.0];
+    let mut tangent = [0.0];
+    overflow_jvp(&[0.1], &[1.0], &mut value, &mut tangent);
+    assert!(value[0].is_finite());
+    assert!(
+        tangent[0].is_infinite(),
+        "expected overflow, got {}",
+        tangent[0]
+    );
+}
+
 fn assert_close(actual: &[f64], expected: &[f64], tolerance: f64) {
     assert_eq!(actual.len(), expected.len());
     for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {

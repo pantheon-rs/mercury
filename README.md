@@ -1,6 +1,6 @@
 # Mercury
 
-Differentiable numerical operators for simulation and optimization in Rust.
+Differentiable Rust functions for simulation and optimization.
 
 Mercury compiles numerical kernels with experimental Rust/Enzyme and connects
 them in immutable runtime plans. The host owns simulation state and time.
@@ -9,7 +9,30 @@ them in immutable runtime plans. The host owns simulation state and time.
 - Mercury propagates derivatives through shared inputs and runtime connections.
 - faer supplies factorizations behind explicit linear and implicit solve rules.
 
-Start with a function and its gradient:
+Define a function, select its gradient, and evaluate:
+
+```rust
+#![feature(autodiff)]
+
+#[mercury::function(Rosenbrock)]
+fn rosenbrock(x: f64, y: f64) -> f64 {
+    let a = 1.0 - x;
+    let b = y - x * x;
+    a * a + 100.0 * b * b
+}
+
+fn main() -> mercury::Result<()> {
+    let function = Rosenbrock::new();
+    let gradient = function.gradient();
+
+    let value = function.eval(-1.2, 1.0)?;
+    let [df_dx, df_dy] = gradient.eval(-1.2, 1.0)?;
+    println!("value = {value}, gradient = [{df_dx}, {df_dy}]");
+    Ok(())
+}
+```
+
+Run it with the pinned compiler:
 
 ```sh
 ./scripts/example.sh rosenbrock
@@ -19,12 +42,25 @@ For `f(x, y) = (1 - x)² + 100(y - x²)²`, at `(-1.2, 1)` this gives
 `f = 24.2` and `gradient = [-215.6, -88]`.
 The [complete example](examples/rosenbrock.rs) fits in one file.
 
-Continue through the [small examples](examples/README.md): arithmetic,
-elementary functions, derivative products, Jacobians, composition, and solves.
+The attribute names the generated type explicitly. `gradient()` selects a
+compiled derivative; `eval` computes it at the supplied arguments. The gradient
+follows argument order. To compute both in one combined reverse call, use
+`function.value_and_gradient(x, y)?`.
 
-Configuration is inactive. Put every value whose derivative you need in `q`.
-The macro also supports dimensions taken from configuration and
-`.with_domain(validator)` for checks outside differentiated code.
+Functions returning `[f64; N]` expose `function.jacobian().eval(...)`, returning
+one row per output and one column per argument. All arguments are active `f64`
+values. Calls return owned values and reject nonfinite inputs and results.
+Function bodies must be deterministic and differentiable at the requested point;
+finite checks cannot establish differentiability or catch panics.
+
+Continue through the [small examples](examples/README.md): arithmetic,
+elementary functions, Jacobians, composition, derivative products, and solves.
+See [the function API](docs/functions.md) for exact call and storage contracts.
+
+For graphs, pass the same function instance to `builder.add(function, sources)`.
+The lower-level `#[differentiable(inputs = n, outputs = m)]` slice interface
+supports inactive configuration, runtime dimensions, and `.with_domain(validator)`.
+Put every value whose derivative you need in its input slice.
 
 Linearizations expose values, JVPs, VJPs, contiguous batches, and row-major dense
 Jacobians. A plan is itself an operator, so residual groups can be composed and

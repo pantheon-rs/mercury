@@ -2,22 +2,22 @@
 
 //! Compose two kernels with a shared input. Run with `./scripts/example.sh composition`.
 
-use mercury::{Plan, Source, differentiable};
+use mercury::{Plan, Source, function};
 
-#[differentiable(inputs = 1, outputs = 1)]
-fn square(_config: &(), q: &[f64], y: &mut [f64]) {
-    y[0] = q[0] * q[0];
+#[function(Square)]
+fn square(x: f64) -> f64 {
+    x * x
 }
 
-#[differentiable(inputs = 2, outputs = 1)]
-fn sum(_config: &(), q: &[f64], y: &mut [f64]) {
-    y[0] = q[0] + q[1];
+#[function(Sum)]
+fn sum(x: f64, y: f64) -> f64 {
+    x + y
 }
 
 fn main() -> mercury::Result<()> {
     let mut builder = Plan::builder(1);
-    let squared = builder.add(square_operator(()), [Source::Input(0)]);
-    let result = builder.add(sum_operator(()), [squared.output(0), Source::Input(0)]);
+    let squared = builder.add(Square::new(), [Source::Input(0)]);
+    let result = builder.add(Sum::new(), [squared.output(0), Source::Input(0)]);
     let plan = builder.build([result.output(0)])?;
 
     let point = [3.0];

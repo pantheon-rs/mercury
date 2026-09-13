@@ -2,19 +2,17 @@
 
 //! Solve z² - q = 0 and differentiate its positive root.
 
-use mercury::{ImplicitSolve, Plan, Result, Source, differentiable};
+use mercury::{ImplicitSolve, Plan, Result, Source, function};
 
-#[differentiable(inputs = 2, outputs = 1)]
-fn residual(_config: &(), input: &[f64], output: &mut [f64]) {
-    // Residual inputs put the unknown z before the active parameter q.
-    let z = input[0];
-    let q = input[1];
-    output[0] = z * z - q;
+#[function(Residual)]
+fn residual(z: f64, q: f64) -> f64 {
+    // Residual arguments put the unknown z before the active parameter q.
+    z * z - q
 }
 
 fn main() -> Result<()> {
     // A positive initial guess selects the positive square root.
-    let solve = ImplicitSolve::new(residual_operator(()), vec![1.0], 1.0e-12, 20)?;
+    let solve = ImplicitSolve::new(Residual::new(), vec![1.0], 1.0e-12, 20)?;
     let mut builder = Plan::builder(1);
     let root = builder.add(solve, [Source::Input(0)]);
     let plan = builder.build([root.output(0)])?;

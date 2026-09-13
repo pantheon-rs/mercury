@@ -93,6 +93,10 @@ pub const fn check_len(buffer: &'static str, actual: usize, expected: usize) -> 
     Ok(())
 }
 
+/// Reject NaN and infinity at a numerical boundary.
+///
+/// # Errors
+/// Returns [`Error::NonFinite`] if any value is not finite.
 pub fn check_finite(buffer: &'static str, values: &[f64]) -> Result<()> {
     if values.iter().any(|value| !value.is_finite()) {
         return Err(Error::NonFinite(buffer));

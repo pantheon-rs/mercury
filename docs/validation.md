@@ -9,6 +9,7 @@ and the adjoint identity. The implementation adds:
 
 | Boundary | Evidence |
 | --- | --- |
+| Typed function API | Rosenbrock gradients and combined calls, rectangular Jacobians against analytic and finite-difference oracles, graph composition, nonfinite results and independent calls after failure |
 | Kernel macro/adapter | Analytic derivatives, inactive configuration, runtime dimensions, batches, preserved seeds, domain and buffer failures |
 | Runtime plan | Fan-out, repeated inputs/outputs, finite differences, adjoint identity, Jacobian assembly, cycle/foreign-handle rejection, failure recovery |
 | Solves | Pivoted nonsymmetric systems, perturb-and-resolve, cached products, final-root Jacobian, composed residual plans, singularity/nonconvergence |
@@ -34,14 +35,25 @@ nix flake check
 
 The CI script checks formatting, workspace clippy/release tests, documentation, and
 dependencies. Flake checks also build the package in the Nix sandbox. New files
-must be tracked for Git-backed flake checks to include them. Coverage is deferred
-until the library has executable behavior; instrumented Enzyme paths previously
+must be tracked for Git-backed flake checks to include them. Coverage
+instrumentation remains deferred; instrumented Enzyme paths previously
 failed on injected atomic counters.
 
 The flight kernel exposed another compiler limitation: zero-initialized
 temporary RK arrays followed by overwrite loops failed Enzyme's `memset` type
 inference. Explicit element construction passes. This is a finding for that
 kernel and compiler, not a ban on mutable arrays.
+
+The typed API checks also exposed two numerical limitations on this pin:
+reverse differentiation of `sqrt` at zero returned zero (the function is not
+differentiable there), and a forward derivative of `(x * f64::MAX) * 2.0`
+at `x = 0.1` returned zero instead of overflowing. The latter reproduces with
+Enzyme alone in `tests/enzyme.rs`, without Mercury's macro. That regression is
+explicitly ignored in CI; run it with
+`cargo test --release --test enzyme constant_scaling_reports_derivative_overflow -- --ignored`
+inside `nix develop`. Finite checks cannot detect an incorrect finite derivative.
+Ordinary-domain analytic checks and explicit nonfinite-result rejection pass;
+they do not establish correctness for every floating-point extreme.
 
 ## Isolated probes: 2026-09-12
 

@@ -1,10 +1,33 @@
-//! Generate concrete Enzyme entry points and a checked Mercury kernel adapter.
+//! Generate checked function calls and kernel adapters over compiled Enzyme derivatives.
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 use syn::{Expr, FnArg, ItemFn, MetaNameValue, Pat, ReturnType, Token, Type};
+
+mod function;
+
+/// Give an ordinary numerical function a named, checked evaluation API.
+///
+/// `#[mercury::function(Rosenbrock)]` preserves the original function and creates
+/// `Rosenbrock::new()`. Arguments must be named `f64` values; the return is `f64`
+/// or `[f64; N]` with a positive integer literal length. All arguments are active.
+/// Scalar functions expose `gradient()` and `value_and_gradient()`; array-returning
+/// functions expose `jacobian()`. Derivatives follow argument declaration order.
+/// The generated type also implements `mercury::Operator` for graph composition.
+///
+/// Function bodies must be deterministic, without external mutation, and valid
+/// on their documented domains. Checked calls reject nonfinite inputs, values
+/// and derivatives; they do not catch panics. The original Rust function remains
+/// unchecked. The consuming crate needs `#![feature(autodiff)]` and Enzyme.
+#[proc_macro_attribute]
+pub fn function(arguments: TokenStream, item: TokenStream) -> TokenStream {
+    match function::expand(arguments.into(), item.into()) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.into_compile_error().into(),
+    }
+}
 
 /// Compile a slice kernel and generate its `<name>_operator(config)` constructor.
 ///

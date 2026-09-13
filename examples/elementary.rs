@@ -2,30 +2,19 @@
 
 //! Elementary functions and their scalar derivatives at x = 1.
 
-use mercury::{Plan, Source, differentiable};
+use mercury::function;
 use std::f64::consts::E;
 
-#[differentiable(inputs = 1, outputs = 6)]
-fn elementary(_config: &(), input: &[f64], output: &mut [f64]) {
-    let x = input[0];
-    output[0] = x * x;
-    output[1] = x.sqrt();
-    output[2] = x.exp();
-    output[3] = x.ln();
-    output[4] = x.sin();
-    output[5] = x.cos();
+#[function(Elementary)]
+fn elementary(x: f64) -> [f64; 6] {
+    [x * x, x.sqrt(), x.exp(), x.ln(), x.sin(), x.cos()]
 }
 
 fn main() -> mercury::Result<()> {
-    let mut builder = Plan::builder(1);
-    let node = builder.add(elementary_operator(()), [Source::Input(0)]);
-    let outputs = (0..6).map(|i| node.output(i)).collect::<Vec<_>>();
-    let plan = builder.build(outputs)?;
-    let mut workspace = plan.workspace();
-    let point = [1.0];
-    let mut linearization = plan.linearize(&point, &mut workspace)?;
-    let mut derivatives = [0.0; 6];
-    linearization.jvp(&[1.0], &mut derivatives)?; // Unit input direction gives d/dx.
+    let function = Elementary::new();
+    let jacobian = function.jacobian();
+    let values = function.eval(1.0)?;
+    let derivatives = jacobian.eval(1.0)?;
 
     let cases = [
         ("x^2", 1.0, 2.0),
@@ -37,8 +26,8 @@ fn main() -> mercury::Result<()> {
     ];
     println!("At x = 1:");
     for (row, (formula, expected_value, expected_derivative)) in cases.into_iter().enumerate() {
-        let value = linearization.value()?[row];
-        let derivative = derivatives[row];
+        let value = values[row];
+        let derivative = derivatives[row][0];
         println!("{formula:7}: value = {value:.6}, d/dx = {derivative:.6}");
         assert!((value - expected_value).abs() < 1.0e-12);
         assert!((derivative - expected_derivative).abs() < 1.0e-12);

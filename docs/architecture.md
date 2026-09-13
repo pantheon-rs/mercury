@@ -8,6 +8,11 @@ matrix/primitive implementation at `58d2f49`.
 
 ## Compile kernels, compose operators
 
+Start with `#[function(Name)]` on an ordinary scalar-argument Rust function.
+Its named type exposes checked `eval` and scalar `gradient` or vector `jacobian`
+calls, returning owned values. The same type implements `Operator` for plans.
+See [function contracts](functions.md) for supported signatures and call costs.
+
 ```mermaid
 flowchart TD
     subgraph build["Build time"]
@@ -16,10 +21,12 @@ flowchart TD
         S["Explicit solve derivative rules"]
     end
     subgraph runtime["Runtime"]
+        D["Direct function / derivative evaluation"]
         W["Instances + wiring"] --> P["Prepare immutable plan"]
         P --> E["Evaluate and differentiate"]
     end
     C --> P
+    C --> D
     S --> P
     C ~~~ W
     S ~~~ W
