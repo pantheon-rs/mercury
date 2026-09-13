@@ -6,6 +6,8 @@ use crate::{Error, Operator, OperatorWorkspace, Result, Shape};
 type Primal<C> = fn(&C, &[f64], &mut [f64]);
 type Forward<C> = fn(&C, &[f64], &[f64], &mut [f64], &mut [f64]);
 type Reverse<C> = fn(&C, &[f64], &mut [f64], &mut [f64], &mut [f64]);
+type Curvature<C> = fn(&C, &[f64], &[f64], &[f64], &mut [f64]);
+type Dependency<C> = fn(&C, usize, usize) -> bool;
 type Domain<C> = fn(&C, &[f64]) -> Result<()>;
 
 /// A compiled numerical kernel with owned, immutable inactive configuration.
@@ -19,6 +21,8 @@ pub struct Kernel<C> {
     forward: Forward<C>,
     reverse: Reverse<C>,
     domain: Option<Domain<C>>,
+    curvature: Option<Curvature<C>>,
+    dependency: Option<Dependency<C>>,
 }
 
 impl<C> Kernel<C> {
@@ -43,7 +47,25 @@ impl<C> Kernel<C> {
             forward,
             reverse,
             domain: None,
+            curvature: None,
+            dependency: None,
         }
+    }
+
+    /// Attach a weighted Hessian-vector callback that overwrites its output.
+    /// See the [example](crate::advanced#second-order-products).
+    #[must_use]
+    pub const fn with_curvature(mut self, curvature: Curvature<C>) -> Self {
+        self.curvature = Some(curvature);
+        self
+    }
+
+    /// Declare structural dependencies; false must mean independence throughout the domain.
+    /// See the [example](crate::advanced#structural-dependencies).
+    #[must_use]
+    pub const fn with_dependencies(mut self, dependency: Dependency<C>) -> Self {
+        self.dependency = Some(dependency);
+        self
     }
 
     /// Check a kernel's domain outside differentiated code before each call.
@@ -59,6 +81,11 @@ impl<C> Kernel<C> {
 impl<C: Send + Sync> Operator for Kernel<C> {
     fn shape(&self) -> Shape {
         self.shape
+    }
+
+    fn depends_on(&self, output: usize, input: usize) -> bool {
+        self.dependency
+            .is_none_or(|dependency| dependency(&self.config, output, input))
     }
 
     fn workspace(&self) -> Box<dyn OperatorWorkspace + '_> {
@@ -153,6 +180,33 @@ impl<C> OperatorWorkspace for KernelWorkspace<'_, C> {
         );
         check_finite("kernel output", &self.value)?;
         check_finite("kernel VJP", output)
+    }
+
+    fn curvature(
+        &mut self,
+        input: &[f64],
+        weights: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+    ) -> Result<()> {
+        self.check_input(input)?;
+        check_len(
+            "curvature weights",
+            weights.len(),
+            self.kernel.shape.outputs,
+        )?;
+        check_len(
+            "curvature direction",
+            direction.len(),
+            self.kernel.shape.inputs,
+        )?;
+        check_len("curvature output", output.len(), self.kernel.shape.inputs)?;
+        check_finite("curvature weights", weights)?;
+        check_finite("curvature direction", direction)?;
+        let curvature = self.kernel.curvature.ok_or(Error::UnsupportedDerivative)?;
+        output.fill(f64::NAN);
+        curvature(&self.kernel.config, input, weights, direction, output);
+        check_finite("kernel curvature", output)
     }
 
     fn jvp_batch(

@@ -7,14 +7,18 @@ use syn::punctuated::Punctuated;
 use syn::{Expr, FnArg, ItemFn, MetaNameValue, Pat, ReturnType, Token, Type};
 
 mod function;
+mod shape;
 
 /// Give an ordinary numerical function a named, checked evaluation API.
 ///
 /// `#[mercury::function(Rosenbrock)]` preserves the original function and creates
-/// `Rosenbrock::new()`. Arguments must be named `f64` values; the return is `f64`
-/// or `[f64; N]` with a positive integer literal length. All arguments are active.
+/// `Rosenbrock::new()`. Arguments and returns accept `f64`, `[f64; N]`, or `[[f64; C]; R]` with
+/// positive integer literal dimensions. All arguments are active. When any
+/// argument is an array, derivative results have fields named after arguments.
 /// Scalar functions expose `gradient()` and `value_and_gradient()`; array-returning
 /// functions expose `jacobian()`. Derivatives follow argument declaration order.
+/// Scalar gradients expose `jacobian().eval(...)` for the Hessian. First
+/// derivative handles are also operators; third derivatives are unsupported.
 /// The generated type also implements `mercury::advanced::Operator` for graph composition.
 ///
 /// Function bodies must be deterministic, without external mutation, and valid

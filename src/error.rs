@@ -31,6 +31,8 @@ pub enum Error {
     NonFinite(&'static str),
     /// A kernel's documented domain was violated.
     Domain(&'static str),
+    /// An operator has no rule for the requested derivative order.
+    UnsupportedDerivative,
     /// A solve matrix is singular.
     Singular,
     /// A nonlinear solve did not converge.
@@ -68,6 +70,9 @@ impl fmt::Display for Error {
             Self::InvalidLinearization => f.write_str("linearization is invalid; prepare it again"),
             Self::NonFinite(buffer) => write!(f, "{buffer} contains a non-finite value"),
             Self::Domain(message) => f.write_str(message),
+            Self::UnsupportedDerivative => {
+                f.write_str("operator does not support this derivative order")
+            }
             Self::Singular => f.write_str("solve matrix is singular"),
             Self::NonConvergence => f.write_str("nonlinear solve did not converge"),
             Self::Operator { node, source } => write!(f, "operator {node}: {source}"),

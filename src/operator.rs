@@ -24,6 +24,8 @@ pub trait Operator: Send + Sync {
     fn workspace(&self) -> Box<dyn OperatorWorkspace + '_>;
 
     /// Conservative dependency of one output on one input.
+    /// Returning false promises independence everywhere in the supported domain,
+    /// including all branches. Numerical zeros at one point are insufficient.
     ///
     /// See the [example](crate::advanced#operator-contract).
     fn depends_on(&self, _output: usize, _input: usize) -> bool {
@@ -64,6 +66,20 @@ pub trait OperatorWorkspace {
     ///
     /// See the [example](crate::advanced#operator-contract).
     fn vjp(&mut self, input: &[f64], seed: &[f64], output: &mut [f64]) -> Result<()>;
+
+    /// Write the Hessian-vector product of the fixed weighted output sum.
+    /// The result is `D(J(input)^T weights)[direction]`; weights stay constant.
+    /// See the [example](crate::advanced#second-order-products).
+    /// Operators without this rule return [`crate::Error::UnsupportedDerivative`]; no numerical fallback is used.
+    fn curvature(
+        &mut self,
+        _input: &[f64],
+        _weights: &[f64],
+        _direction: &[f64],
+        _output: &mut [f64],
+    ) -> Result<()> {
+        Err(crate::Error::UnsupportedDerivative)
+    }
 
     /// Apply contiguous seed rows; implementations may use compiled batch widths.
     ///

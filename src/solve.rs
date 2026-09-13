@@ -126,6 +126,39 @@ impl OperatorWorkspace for DenseWorkspace<'_> {
         check_finite("solve cotangent output", output)
     }
 
+    fn curvature(
+        &mut self,
+        input: &[f64],
+        weights: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+    ) -> Result<()> {
+        let n = self.operator.dimension;
+        check_len("solve curvature", output.len(), self.operator.inputs)?;
+        check_len("solve curvature weights", weights.len(), n)?;
+        check_finite("solve curvature weights", weights)?;
+        let mut dx = vec![0.0; n];
+        self.jvp(input, direction, &mut dx)?;
+        let factors = self.factors.as_ref().ok_or(Error::InvalidLinearization)?;
+        let mut lambda = weights.to_vec();
+        solve_factored(factors, &mut lambda, true)?;
+        let mut delta_lambda = vec![0.0; n];
+        for (column, value) in delta_lambda.iter_mut().enumerate() {
+            *value = -(0..n)
+                .map(|row| direction[row * n + column] * lambda[row])
+                .sum::<f64>();
+        }
+        solve_factored(factors, &mut delta_lambda, true)?;
+        for row in 0..n {
+            for column in 0..n {
+                output[row * n + column] =
+                    -delta_lambda[row] * self.solution[column] - lambda[row] * dx[column];
+            }
+        }
+        output[n * n..].copy_from_slice(&delta_lambda);
+        check_finite("solve curvature", output)
+    }
+
     fn invalidate(&mut self) {
         self.factors = None;
     }
@@ -274,7 +307,9 @@ impl ImplicitWorkspace<'_> {
                     self.factors = Some(self.state_factors()?);
                 }
                 output.copy_from_slice(&self.point[..n]);
-                self.residual.invalidate();
+                if !prepare {
+                    self.residual.invalidate();
+                }
                 return Ok(());
             }
             if iteration == self.operator.max_iterations {
@@ -342,6 +377,39 @@ impl OperatorWorkspace for ImplicitWorkspace<'_> {
                 .sum::<f64>();
         }
         check_finite("root cotangent output", output)
+    }
+
+    fn curvature(
+        &mut self,
+        input: &[f64],
+        weights: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+    ) -> Result<()> {
+        let n = self.operator.shape.outputs;
+        let p = self.operator.shape.inputs;
+        check_len("root curvature", output.len(), p)?;
+        check_len("root curvature weights", weights.len(), n)?;
+        check_finite("root curvature weights", weights)?;
+        let mut tangent = vec![0.0; n + p];
+        self.jvp(input, direction, &mut tangent[..n])?;
+        tangent[n..].copy_from_slice(direction);
+        let factors = self.factors.as_ref().ok_or(Error::InvalidLinearization)?;
+        let mut lambda = weights.to_vec();
+        solve_factored(factors, &mut lambda, true)?;
+        let mut curved = vec![0.0; n + p];
+        self.residual
+            .curvature(&self.point, &lambda, &tangent, &mut curved)?;
+        check_finite("residual curvature", &curved)?;
+        let mut delta_lambda: Vec<_> = curved[..n].iter().map(|value| -value).collect();
+        solve_factored(factors, &mut delta_lambda, true)?;
+        for (column, value) in output.iter_mut().enumerate() {
+            *value = -curved[n + column]
+                - (0..n)
+                    .map(|row| self.jacobian[row * (n + p) + n + column] * delta_lambda[row])
+                    .sum::<f64>();
+        }
+        check_finite("root curvature", output)
     }
 
     fn invalidate(&mut self) {

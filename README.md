@@ -87,8 +87,9 @@ The [flight example](examples/flight.rs) composes 100 vertical-flight steps and
 evaluates the final state and its Jacobian. Checkpointed planar RK4 remains
 covered by the trajectory regression tests.
 
-The current scope is first order and dense solves. Batches use scalar loops;
-native batch acceleration, sparse assembly, exact second derivatives, and
+Sparse Jacobians, structured array arguments, and second derivatives are supported.
+Try `scripts/example.sh sparse`, `structured`, or `hessian`. Batches use scalar
+loops; native batch acceleration, sparse solve operators, third derivatives, and
 state-triggered event sensitivities remain future work. Newton is undamped and
 requires a suitable initial guess. No allocation or performance bound is claimed.
 

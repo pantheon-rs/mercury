@@ -1,34 +1,10 @@
 //! Typed function calls over the same compiled entry points used by plans.
 
+use crate::shape::Shape;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
-use syn::{Expr, FnArg, Ident, ItemFn, Lit, Pat, ReturnType, Type};
-
-fn is_float(ty: &Type) -> bool {
-    matches!(ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("f64"))
-}
-
-fn output_shape(output: &ReturnType) -> syn::Result<(usize, bool)> {
-    if let ReturnType::Type(_, ty) = output {
-        if is_float(ty) {
-            return Ok((1, true));
-        }
-        if let Type::Array(array) = ty.as_ref()
-            && let Expr::Lit(length) = &array.len
-            && let Lit::Int(length) = &length.lit
-        {
-            let size = length.base10_parse::<usize>()?;
-            if is_float(&array.elem) && size > 0 {
-                return Ok((size, false));
-            }
-        }
-    }
-    Err(syn::Error::new_spanned(
-        output,
-        "return f64 or [f64; N], where N is a positive integer literal",
-    ))
-}
+use syn::{FnArg, Ident, ItemFn, Pat, ReturnType};
 
 pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     let type_name: Ident = syn::parse2(arguments)?;
@@ -45,63 +21,149 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
     {
         return Err(syn::Error::new_spanned(
             signature,
-            "expected an ordinary nongeneric function with at least one f64 argument",
+            "expected an ordinary nongeneric function with at least one numerical argument",
         ));
     }
     let mut names = Vec::new();
+    let mut types = Vec::new();
+    let mut shapes = Vec::new();
     for argument in &signature.inputs {
         if let FnArg::Typed(argument) = argument
             && let Pat::Ident(name) = argument.pat.as_ref()
-            && is_float(&argument.ty)
             && name.by_ref.is_none()
             && name.subpat.is_none()
         {
+            shapes.push(Shape::parse(&argument.ty)?);
+            types.push(&argument.ty);
             names.push(&name.ident);
             continue;
         }
         return Err(syn::Error::new_spanned(
             argument,
-            "expected a named f64 argument",
+            "expected a named scalar, vector, or matrix argument",
         ));
     }
-    let (outputs, scalar) = output_shape(&signature.output)?;
-    let inputs = names.len();
-    let indices = 0..inputs;
+    let ReturnType::Type(_, result_type) = &signature.output else {
+        return Err(syn::Error::new_spanned(
+            &signature.output,
+            "expected a scalar, vector, or matrix return",
+        ));
+    };
+    let result_shape = Shape::parse(result_type)?;
+    let outputs = result_shape.size();
+    let scalar = result_shape.scalar();
+    let inputs = shapes
+        .iter()
+        .try_fold(0usize, |sum, shape| sum.checked_add(shape.size()))
+        .ok_or_else(|| syn::Error::new_spanned(signature, "input dimensions overflow"))?;
+    inputs
+        .checked_mul(outputs)
+        .ok_or_else(|| syn::Error::new_spanned(signature, "Jacobian dimensions overflow"))?;
+    let mut offset = 0;
+    let calls: Vec<_> = shapes
+        .iter()
+        .map(|shape| {
+            let call = shape.restore(&quote!(input), offset);
+            offset += shape.size();
+            call
+        })
+        .collect();
+    let packed: Vec<_> = names
+        .iter()
+        .zip(&shapes)
+        .flat_map(|(name, shape)| shape.flatten(quote!(#name)))
+        .collect();
+    let structured = shapes.iter().any(|shape| !shape.scalar());
+    let gradient_type = if structured {
+        quote!(GradientValue)
+    } else {
+        quote!([f64; #inputs])
+    };
     let name = &signature.ident;
     let visibility = &function.vis;
     let module = format_ident!("__mercury_{}", name.unraw());
+    let public_gradient_type = if structured {
+        quote!(#module::GradientValue)
+    } else {
+        quote!([f64; #inputs])
+    };
     let conditions: Vec<_> = function
         .attrs
         .iter()
         .filter(|attribute| attribute.path().is_ident("cfg"))
         .collect();
-    let result_type = if scalar {
-        quote!(f64)
+    let result_value = result_shape.restore(&quote!(value), 0);
+    let call = quote!(super::#name(#(#calls),*));
+    let entries = result_shape.flatten(quote!(value));
+    let rows = 0..outputs;
+    let write_value = quote! { let value = #call; #(output[#rows] = #entries;)* };
+    let mut offset = 0;
+    let gradient_fields: Vec<_> = shapes
+        .iter()
+        .map(|shape| {
+            let field = shape.restore(&quote!(gradient), offset);
+            offset += shape.size();
+            field
+        })
+        .collect();
+    let gradient_value = if structured {
+        quote!(GradientValue { #(#names: #gradient_fields),* })
     } else {
-        quote!([f64; #outputs])
+        quote!(gradient)
     };
-    let result_value = if scalar {
-        quote!(value[0])
+    let mut offset = 0;
+    let jacobian_fields: Vec<_> = shapes
+        .iter()
+        .map(|shape| {
+            let rows = (0..outputs).map(|row| shape.restore(&quote!(matrix[#row]), offset));
+            let field = quote!([#(#rows),*]);
+            offset += shape.size();
+            field
+        })
+        .collect();
+    let jacobian_value = if structured {
+        quote!(JacobianValue { #(#names: #jacobian_fields),* })
     } else {
-        quote!(value)
+        quote!(matrix)
     };
-    let call = quote!(super::#name(#(input[#indices]),*));
-    let write_value = if scalar {
-        quote!(output[0] = #call;)
+    let jacobian_type = if structured {
+        quote!(JacobianValue)
     } else {
-        // Explicit writes keep the adapter's output contract visible to Enzyme.
-        let rows = 0..outputs;
+        quote!([[f64; #inputs]; #outputs])
+    };
+    let value_fields = if structured {
+        let value_name = if scalar {
+            format_ident!("GradientValue")
+        } else {
+            format_ident!("JacobianValue")
+        };
+        let field_types: Vec<_> = types
+            .iter()
+            .map(|ty| {
+                if scalar {
+                    quote!(#ty)
+                } else {
+                    quote!([#ty; #outputs])
+                }
+            })
+            .collect();
         quote! {
-            let value = #call;
-            #(output[#rows] = value[#rows];)*
+            /// Derivatives grouped by the original argument names and shapes.
+            #[derive(Clone, Copy, Debug, PartialEq)]
+            pub struct #value_name {
+                #(#[doc = concat!("Partial derivatives with respect to ", stringify!(#names), ".")]
+                  pub #names: #field_types,)*
+            }
         }
+    } else {
+        quote!()
     };
     let (derivative_name, derivative_type, derivative_eval, function_methods, derivative_helper) =
         if scalar {
             (
                 format_ident!("Gradient"),
-                quote!([f64; #inputs]),
-                quote!(Ok(self::value_and_gradient([#(#names),*])?.1)),
+                gradient_type.clone(),
+                quote!(Ok(self::value_and_gradient([#(#packed),*])?.1)),
                 quote! {
                     /// Select the compiled gradient. No evaluation occurs here.
                     pub const fn gradient(&self) -> #module::Gradient {
@@ -112,15 +174,15 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
                     ///
                     /// # Errors
                     /// Returns an error for nonfinite inputs, value or derivatives.
-                    pub fn value_and_gradient(&self, #(#names: f64),*)
-                        -> ::mercury::Result<(f64, [f64; #inputs])>
+                    pub fn value_and_gradient(&self, #(#names: #types),*)
+                        -> ::mercury::Result<(f64, #public_gradient_type)>
                     {
-                        #module::value_and_gradient([#(#names),*])
+                        #module::value_and_gradient([#(#packed),*])
                     }
                 },
                 quote! {
                     pub(super) fn value_and_gradient(input: [f64; #inputs])
-                        -> ::mercury::Result<(f64, [f64; #inputs])>
+                        -> ::mercury::Result<(f64, #gradient_type)>
                     {
                         check_finite("input", &input)?;
                         let mut value = [f64::NAN];
@@ -129,15 +191,15 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
                         vjp(&(), &input, &mut gradient, &mut value, &mut seed);
                         check_finite("function output", &value)?;
                         check_finite("gradient", &gradient)?;
-                        Ok((value[0], gradient))
+                        Ok((value[0], #gradient_value))
                     }
                 },
             )
         } else {
             (
                 format_ident!("Jacobian"),
-                quote!([[f64; #inputs]; #outputs]),
-                quote!(self::jacobian([#(#names),*])),
+                jacobian_type.clone(),
+                quote!(self::jacobian([#(#packed),*])),
                 quote! {
                     /// Select the compiled Jacobian. Rows are outputs; columns are arguments.
                     pub const fn jacobian(&self) -> #module::Jacobian {
@@ -146,7 +208,7 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
                 },
                 quote! {
                     fn jacobian(input: [f64; #inputs])
-                        -> ::mercury::Result<[[f64; #inputs]; #outputs]>
+                        -> ::mercury::Result<#jacobian_type>
                     {
                         check_finite("input", &input)?;
                         let mut matrix = [[0.0; #inputs]; #outputs];
@@ -162,12 +224,53 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
                                 matrix[row][column] = tangent[row];
                             }
                         }
-                        Ok(matrix)
+                        Ok(#jacobian_value)
                     }
                 },
             )
         };
 
+    let second_derivative = if scalar {
+        quote! {
+            impl Gradient {
+                /// Select the Jacobian of the gradient: the Hessian.
+                pub const fn jacobian(&self) -> Hessian { Hessian }
+            }
+
+            /// A scalar function's second derivatives in flattened argument order.
+            #[derive(Clone, Copy, Debug)]
+            pub struct Hessian;
+
+            #[allow(clippy::unused_self, clippy::used_underscore_binding)]
+            impl Hessian {
+                /// Evaluate the Hessian; rows and columns follow argument order.
+                ///
+                /// # Errors
+                /// Returns an error for nonfinite inputs, values or derivatives.
+                pub fn eval(&self, #(#names: #types),*) -> ::mercury::Result<[[f64; #inputs]; #inputs]> {
+                    self::hessian([#(#packed),*])
+                }
+            }
+
+            fn hessian(input: [f64; #inputs]) -> ::mercury::Result<[[f64; #inputs]; #inputs]> {
+                self::evaluate(input)?;
+                let mut matrix = [[0.0; #inputs]; #inputs];
+                for column in 0..#inputs {
+                    let mut seed = [0.0; #inputs];
+                    seed[column] = 1.0;
+                    let mut product = [0.0; #inputs];
+                    curvature(&(), &input, &[1.0], &seed, &mut product);
+                    check_finite("Hessian", &product)?;
+                    for row in 0..#inputs { matrix[row][column] = product[row]; }
+                }
+                Ok(matrix)
+            }
+        }
+    } else {
+        quote!()
+    };
+
+    let weight_indices = 0..outputs;
     Ok(quote! {
         #function
 
@@ -186,8 +289,8 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
             ///
             /// # Errors
             /// Returns an error for nonfinite inputs or outputs.
-            pub fn eval(&self, #(#names: f64),*) -> ::mercury::Result<#result_type> {
-                let value = #module::evaluate([#(#names),*])?;
+            pub fn eval(&self, #(#names: #types),*) -> ::mercury::Result<#result_type> {
+                let value = #module::evaluate([#(#packed),*])?;
                 Ok(#result_value)
             }
 
@@ -212,13 +315,29 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
 
             pub(super) static KERNEL: ::mercury::advanced::Kernel<()> = ::mercury::advanced::Kernel::new(
                 (), ::mercury::advanced::Shape { inputs: #inputs, outputs: #outputs }, primal, jvp, vjp,
-            );
+            ).with_curvature(curvature);
 
             #[::std::autodiff::autodiff_forward(jvp, Const, Dual, Dual)]
             #[::std::autodiff::autodiff_reverse(vjp, Const, Duplicated, Duplicated)]
             #[allow(clippy::trivially_copy_pass_by_ref)]
             fn primal(_config: &(), input: &[f64], output: &mut [f64]) {
                 #write_value
+            }
+
+            #[::std::autodiff::autodiff_forward(curvature_jvp, Const, Dual, Const, Dual)]
+            #[allow(clippy::trivially_copy_pass_by_ref)]
+            fn weighted_gradient(config: &(), input: &[f64], weights: &[f64], output: &mut [f64]) {
+                let mut value = [0.0; #outputs];
+                // A slice copy here fails nested Enzyme type inference on the pinned compiler.
+                let mut seed = [#(weights[#weight_indices]),*];
+                output.fill(0.0);
+                vjp(config, input, output, &mut value, &mut seed);
+            }
+
+            #[allow(clippy::trivially_copy_pass_by_ref)]
+            fn curvature(config: &(), input: &[f64], weights: &[f64], direction: &[f64], output: &mut [f64]) {
+                let mut gradient = [0.0; #inputs];
+                curvature_jvp(config, input, direction, weights, &mut gradient, output);
             }
 
             pub(super) fn evaluate(input: [f64; #inputs])
@@ -241,11 +360,22 @@ pub fn expand(arguments: TokenStream, item: TokenStream) -> syn::Result<TokenStr
                 ///
                 /// # Errors
                 /// Returns an error for nonfinite inputs, values or derivatives.
-                pub fn eval(&self, #(#names: f64),*) -> ::mercury::Result<#derivative_type> {
+                pub fn eval(&self, #(#names: #types),*) -> ::mercury::Result<#derivative_type> {
                     #derivative_eval
                 }
             }
 
+            impl ::mercury::advanced::Operator for #derivative_name {
+                fn shape(&self) -> ::mercury::advanced::Shape {
+                    ::mercury::advanced::Shape { inputs: #inputs, outputs: #inputs * #outputs }
+                }
+                fn workspace(&self) -> Box<dyn ::mercury::advanced::OperatorWorkspace + '_> {
+                    ::mercury::__private::derivative_workspace(&KERNEL, #scalar)
+                }
+            }
+
+            #second_derivative
+            #value_fields
             #derivative_helper
         }
     })

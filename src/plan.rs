@@ -1,7 +1,10 @@
 //! Validated wiring, deterministic execution, and point-bound derivatives.
 
+mod curvature;
+
 use std::collections::{BTreeSet, VecDeque};
 use std::ops::Range;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{check_finite, check_len};
@@ -163,13 +166,15 @@ impl PlanBuilder {
             .collect();
         nodes.sort_by_key(|node| rank[node.index]);
         let dependencies = output_dependencies(self.inputs, slots, &nodes, &outputs);
+        let sparsity = Arc::new(crate::sparse::Sparsity::new(self.inputs, &dependencies));
         Ok(Plan {
             epoch: self.epoch,
             inputs: self.inputs,
-            nodes,
-            outputs,
+            nodes: nodes.into(),
+            outputs: outputs.into(),
             slots,
-            dependencies,
+            dependencies: dependencies.into(),
+            sparsity,
         })
     }
 }
@@ -232,13 +237,15 @@ fn output_dependencies(
 }
 
 /// Immutable numerical wiring and conservative output dependencies.
+#[derive(Clone)]
 pub struct Plan {
     epoch: u64,
     inputs: usize,
-    nodes: Vec<Node>,
-    outputs: Vec<usize>,
+    nodes: Arc<[Node]>,
+    outputs: Arc<[usize]>,
     slots: usize,
-    dependencies: Vec<Vec<usize>>,
+    dependencies: Arc<[Vec<usize>]>,
+    sparsity: Arc<crate::sparse::Sparsity>,
 }
 
 impl Plan {
@@ -299,15 +306,15 @@ impl Plan {
     ///
     /// See the [example](crate#one-operator-as-a-function).
     /// The output count is checked when the gradient is evaluated.
-    pub const fn gradient(&self) -> Gradient<'_> {
-        Gradient { plan: self }
+    pub fn gradient(&self) -> Gradient {
+        Gradient { plan: self.clone() }
     }
 
     /// Select the Jacobian, with output rows and input columns.
     ///
     /// See the [example](crate#one-operator-as-a-function).
-    pub const fn jacobian(&self) -> Jacobian<'_> {
-        Jacobian { plan: self }
+    pub fn jacobian(&self) -> Jacobian {
+        Jacobian { plan: self.clone() }
     }
 
     /// Evaluate a scalar plan's value and gradient together.
@@ -328,11 +335,20 @@ impl Plan {
 }
 
 /// A scalar plan's gradient, evaluated with the same input order as the plan.
-pub struct Gradient<'p> {
-    plan: &'p Plan,
+#[derive(Clone)]
+pub struct Gradient {
+    plan: Plan,
 }
 
-impl Gradient<'_> {
+impl Gradient {
+    /// Select the Jacobian of this gradient: the scalar plan's Hessian.
+    /// See the [example](crate#second-derivatives).
+    pub fn jacobian(&self) -> Hessian {
+        Hessian {
+            plan: self.plan.clone(),
+        }
+    }
+
     /// Evaluate the gradient and return an owned vector.
     ///
     /// See the [example](crate#one-operator-as-a-function).
@@ -344,12 +360,73 @@ impl Gradient<'_> {
     }
 }
 
-/// A plan's Jacobian, stored in an owned faer matrix.
-pub struct Jacobian<'p> {
-    plan: &'p Plan,
+/// A scalar plan's Hessian, with input rows and input columns.
+#[derive(Clone)]
+pub struct Hessian {
+    plan: Plan,
 }
 
-impl Jacobian<'_> {
+impl Hessian {
+    /// Evaluate second derivatives using the plan's weighted curvature rules.
+    /// See the [example](crate#second-derivatives).
+    ///
+    /// # Errors
+    /// Requires a scalar plan and second-order rules on its operators.
+    /// Rejects invalid inputs, overflowing dimensions, and numerical failures.
+    pub fn eval(&self, point: &[f64]) -> Result<faer::Mat<f64>> {
+        check_len("Hessian outputs", self.plan.outputs.len(), 1)?;
+        self.plan.check_point(point)?;
+        let n = self.plan.inputs;
+        let length = n.checked_mul(n).ok_or(Error::SizeOverflow)?;
+        std::alloc::Layout::array::<f64>(length).map_err(|_| Error::SizeOverflow)?;
+        let mut matrix = faer::Mat::zeros(n, n);
+        let mut workspace = self.plan.workspace();
+        let mut linearization = self.plan.linearize(point, &mut workspace)?;
+        let mut seed = vec![0.0; n];
+        let mut product = vec![0.0; n];
+        for column in 0..n {
+            seed.fill(0.0);
+            seed[column] = 1.0;
+            linearization.curvature(&[1.0], &seed, &mut product)?;
+            for row in 0..n {
+                matrix[(row, column)] = product[row];
+            }
+        }
+        Ok(matrix)
+    }
+}
+
+/// A plan's Jacobian, stored in an owned faer matrix.
+#[derive(Clone)]
+pub struct Jacobian {
+    plan: Plan,
+}
+
+impl Jacobian {
+    /// The fixed CSC pattern, including entries that happen to be zero at a point.
+    /// See the [example](crate#sparse-jacobians).
+    pub fn sparsity(&self) -> faer::sparse::SymbolicSparseColMatRef<'_, usize> {
+        self.plan.sparsity.symbolic.as_ref()
+    }
+
+    /// Evaluate into an owned faer sparse matrix using one JVP per column color.
+    /// See the [example](crate#sparse-jacobians).
+    ///
+    /// # Errors
+    /// Rejects invalid inputs and propagates numerical failures.
+    pub fn eval_sparse(&self, point: &[f64]) -> Result<faer::sparse::SparseColMat<usize, f64>> {
+        self.plan.check_point(point)?;
+        let mut values = vec![0.0; self.plan.sparsity.symbolic.row_idx().len()];
+        let mut workspace = self.plan.workspace();
+        self.plan
+            .linearize(point, &mut workspace)?
+            .sparse_jacobian(&mut values)?;
+        Ok(faer::sparse::SparseColMat::new(
+            self.plan.sparsity.symbolic.clone(),
+            values,
+        ))
+    }
+
     /// Evaluate all partial derivatives; index as `matrix[(output, input)]`.
     ///
     /// See the [example](crate#one-operator-as-a-function).
@@ -472,7 +549,7 @@ impl Plan {
                 });
             }
         }
-        for (output, &source) in workspace.result.iter_mut().zip(&self.outputs) {
+        for (output, &source) in workspace.result.iter_mut().zip(self.outputs.iter()) {
             *output = workspace.values[source];
         }
         workspace.valid = prepare;
@@ -523,6 +600,30 @@ impl<'p> Workspace<'p> {
         for operator in &mut self.operators {
             operator.invalidate();
         }
+    }
+}
+
+impl Operator for Gradient {
+    fn shape(&self) -> Shape {
+        Shape {
+            inputs: self.plan.inputs,
+            outputs: self.plan.inputs,
+        }
+    }
+    fn workspace(&self) -> Box<dyn OperatorWorkspace + '_> {
+        crate::derivative::derivative_workspace(&self.plan, true)
+    }
+}
+
+impl Operator for Jacobian {
+    fn shape(&self) -> Shape {
+        Shape {
+            inputs: self.plan.inputs,
+            outputs: self.plan.inputs.saturating_mul(self.plan.outputs.len()),
+        }
+    }
+    fn workspace(&self) -> Box<dyn OperatorWorkspace + '_> {
+        crate::derivative::derivative_workspace(&self.plan, false)
     }
 }
 
@@ -584,12 +685,26 @@ impl OperatorWorkspace for Workspace<'_> {
         .vjp_batch(count, seeds, output)
     }
 
+    fn curvature(
+        &mut self,
+        input: &[f64],
+        weights: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+    ) -> Result<()> {
+        Linearization {
+            point: input,
+            workspace: self,
+        }
+        .curvature(weights, direction, output)
+    }
+
     fn invalidate(&mut self) {
         Self::invalidate(self);
     }
 }
 
-/// Values and first-order derivatives at one borrowed point and plan.
+/// Values and derivative products at one borrowed point and plan.
 ///
 /// The point cannot change while its linearization is still used:
 ///
@@ -678,19 +793,47 @@ impl Linearization<'_, '_> {
                 .checked_mul(shape.outputs)
                 .ok_or(Error::SizeOverflow)?,
         )?;
+        let plan = self.workspace.plan;
+        let mut values = vec![0.0; plan.sparsity.symbolic.row_idx().len()];
         output.fill(f64::NAN);
-        let mut seed = vec![0.0; shape.inputs];
-        let mut column = vec![0.0; shape.outputs];
-        for input in 0..shape.inputs {
-            seed[input] = 1.0;
-            if let Err(error) = self.jvp(&seed, &mut column) {
+        self.sparse_jacobian(&mut values)?;
+        output.fill(0.0);
+        let pattern = &plan.sparsity.symbolic;
+        for column in 0..shape.inputs {
+            for entry in pattern.col_ptr()[column]..pattern.col_ptr()[column + 1] {
+                output[pattern.row_idx()[entry] * shape.inputs + column] = values[entry];
+            }
+        }
+        Ok(())
+    }
+
+    /// Write CSC values in the order returned by the Jacobian's sparsity method.
+    /// See the [example](crate::advanced#sparse-storage).
+    ///
+    /// # Errors
+    /// Rejects invalid lengths or linearizations; numerical failures poison all values.
+    pub fn sparse_jacobian(&mut self, output: &mut [f64]) -> Result<()> {
+        self.check_valid()?;
+        let plan = self.workspace.plan;
+        let pattern = &plan.sparsity.symbolic;
+        check_len("sparse Jacobian", output.len(), pattern.row_idx().len())?;
+        output.fill(f64::NAN);
+        let mut seed = vec![0.0; plan.inputs];
+        let mut product = vec![0.0; plan.outputs.len()];
+        for columns in &plan.sparsity.colors {
+            seed.fill(0.0);
+            for &column in columns {
+                seed[column] = 1.0;
+            }
+            if let Err(error) = self.jvp(&seed, &mut product) {
                 output.fill(f64::NAN);
                 return Err(error);
             }
-            for (row, &value) in column.iter().enumerate() {
-                output[row * shape.inputs + input] = value;
+            for &column in columns {
+                for entry in pattern.col_ptr()[column]..pattern.col_ptr()[column + 1] {
+                    output[entry] = product[pattern.row_idx()[entry]];
+                }
             }
-            seed[input] = 0.0;
         }
         Ok(())
     }

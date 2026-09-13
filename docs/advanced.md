@@ -181,3 +181,86 @@ import `PlanExecution` for `evaluate`, `linearize`, `epoch`, and `dependencies`.
 The former JVP, VJP, batch and configuration tutorial targets were removed. Their operations
 remain tested. The checkpointed planar-flight model now lives in
 `tests/support/flight.rs`; the flight example demonstrates ordinary graph calls.
+
+## Sparse storage
+
+Reuse your numerical buffer with the plan's fixed CSC pattern:
+
+```rust
+use mercury::{Plan, Source};
+use mercury::advanced::{PlanExecution, Workspace};
+let plan = Plan::builder(2).build([Source::Input(1), Source::Input(0)])?;
+let jacobian = plan.jacobian();
+let mut values = vec![0.0; jacobian.sparsity().row_idx().len()];
+let mut workspace = Workspace::new(&plan);
+plan.linearize(&[2.0, 3.0], &mut workspace)?.sparse_jacobian(&mut values)?;
+let matrix = faer::sparse::SparseColMatRef::new(jacobian.sparsity(), &values);
+assert_eq!(matrix.val(), &[1.0, 1.0]);
+# Ok::<(), mercury::Error>(())
+```
+
+This reuses the destination and structure. Product scratch may still allocate.
+Rebuild the plan when topology or a dependency contract changes.
+
+## Structural dependencies
+
+A kernel may declare that particular output/input pairs are always independent:
+
+```rust
+#![feature(autodiff)]
+use mercury::{Plan, advanced::differentiable};
+#[differentiable(inputs = 2, outputs = 2)]
+fn squares(_config: &(), input: &[f64], output: &mut [f64]) {
+    output[0] = input[0] * input[0];
+    output[1] = input[1] * input[1];
+}
+# fn main() -> mercury::Result<()> {
+let kernel = squares_operator(()).with_dependencies(|(), row, column| row == column);
+let plan = Plan::from_operator(kernel)?;
+assert_eq!(plan.jacobian().eval_sparse(&[2.0, 3.0])?.val(), &[4.0, 6.0]);
+# Ok(())
+# }
+```
+
+`Operator::depends_on` carries the same contract. A false result promises
+independence throughout the supported domain, including all branches. The
+caller supplies this mathematical fact; Mercury cannot verify it. An incorrect
+declaration can corrupt both dense and sparse assembled Jacobians. Keep the
+default `true` when unsure.
+
+## Second-order products
+
+`curvature(weights, direction, output)` applies the Hessian of the fixed weighted
+sum of outputs. The low-level workspace form also takes the prepared input.
+
+```rust
+#![feature(autodiff)]
+use mercury::{Plan, advanced::{differentiable, Operator, PlanExecution, Workspace}};
+#[differentiable(inputs = 1, outputs = 1)]
+fn square(_config: &(), input: &[f64], output: &mut [f64]) {
+    output[0] = input[0] * input[0];
+}
+# fn main() -> mercury::Result<()> {
+let kernel = square_operator(()).with_curvature(|(), _input, weights, direction, output| {
+    output[0] = 2.0 * weights[0] * direction[0];
+});
+{
+    let mut workspace = kernel.workspace();
+    workspace.linearize(&[3.0], &mut [0.0])?;
+    let mut result = [0.0];
+    workspace.curvature(&[3.0], &[2.0], &[4.0], &mut result)?;
+    assert_eq!(result, [16.0]);
+}
+let plan = Plan::from_operator(kernel)?;
+let mut workspace = Workspace::new(&plan);
+let mut result = [0.0];
+plan.linearize(&[3.0], &mut workspace)?.curvature(&[2.0], &[4.0], &mut result)?;
+assert_eq!(result, [16.0]);
+# Ok(())
+# }
+```
+
+`#[function(Name)]` supplies this callback automatically. Manual callbacks must
+overwrite every result and preserve inputs, weights and directions. Hessian
+symmetry requires a twice differentiable function on the evaluated domain.
+Custom workspaces without a curvature rule return `UnsupportedDerivative`.

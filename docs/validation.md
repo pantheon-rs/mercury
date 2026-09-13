@@ -10,6 +10,7 @@ and the adjoint identity. The implementation adds:
 | Boundary | Evidence |
 | --- | --- |
 | Typed function API | Rosenbrock gradients and combined calls, rectangular Jacobians against analytic and finite-difference oracles, graph composition, nonfinite results and independent calls after failure |
+| Foundation | Typed vector/matrix arguments and named partials; CSC structure and one JVP per color; analytic Hessians; derivative operators; weighted curvature against perturbed gradients, including linear and implicit solves; missing-rule failure and recovery |
 | Simple plan API | Owned values and gradients, faer Jacobian layout, scalar-output validation, solves, error recovery and empty outputs |
 | Kernel macro/adapter | Analytic derivatives, inactive configuration, runtime dimensions, batches, preserved seeds, domain and buffer failures |
 | Runtime plan | Fan-out, repeated inputs/outputs, finite differences, adjoint identity, Jacobian assembly, cycle/foreign-handle rejection, failure recovery |
@@ -94,8 +95,22 @@ not blanket statements about either library or current compiler releases.
 The original reports and numerical reference tests remain in Git at `58d2f49`,
 including `docs/decisions/0003-differentiable-primitives-identity.md` and `tests/`.
 Revalidate a specific kernel before expanding the supported subset. The implementation
-does not prove automatic custom-rule substitution, nested AD, or allocation-free
-generated derivatives.
+does not prove automatic custom-rule substitution or allocation-free generated
+derivatives. The current forward-over-reverse path is checked separately below.
+
+## Second-order foundation
+
+The pinned compiler passed a direct forward-over-reverse probe and the committed
+foundation tests. Typed scalar and vector kernels supply weighted curvature;
+tests cover structured arguments, analytic Hessians, derivative operators, and
+weighted products through composed plans. A nonsymmetric linear solve and a
+coupled implicit root are checked against gradients at perturbed, re-solved
+points. Missing curvature rules invalidate the linearization explicitly.
+
+A slice copy into reverse weights failed nested Enzyme type inference. Explicit
+array element construction passes and is used in the typed macro. This evidence
+covers the tested kernels, not arbitrary nested differentiation. Third-order
+rules and automatic curvature generation for dynamic slice kernels are absent.
 
 ## Limits
 

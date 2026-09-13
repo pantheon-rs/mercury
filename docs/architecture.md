@@ -1,14 +1,13 @@
 # Mercury architecture
 
 Mercury composes differentiable numerical operators for simulation and
-optimization. Compiled kernels, runtime plans, first-order products, dense
-Jacobians, and linear/implicit solves are implemented. Sparse assembly and
-exact second derivatives remain future work. This design supersedes the
-matrix/primitive implementation at `58d2f49`.
+optimization. Compiled kernels, runtime plans, dense and sparse Jacobians,
+second-order products, and linear/implicit solves are implemented. This design
+supersedes the matrix/primitive implementation at `58d2f49`.
 
 ## Compile kernels, compose operators
 
-Start with `#[function(Name)]` on an ordinary scalar-argument Rust function.
+Start with `#[function(Name)]` on an ordinary Rust function with scalar, vector, or matrix arguments.
 Its named type exposes checked `eval` and scalar `gradient` or vector `jacobian`
 calls, returning owned values. The same type implements `Operator` for plans.
 See [API examples](api.md) for supported signatures and call costs. Plan values,
@@ -19,7 +18,7 @@ operator-authoring contracts live in [advanced](advanced.md).
 flowchart TD
     subgraph build["Build time"]
         K["f64 kernel + macro"] --> AD["Rust + Enzyme"]
-        AD --> C["Compiled value, JVP, VJP"]
+        AD --> C["Compiled value, JVP, VJP, curvature"]
         S["Explicit solve derivative rules"]
     end
     subgraph runtime["Runtime"]
@@ -166,7 +165,7 @@ may avoid copies. This contract does not require allocation per edge.
 
 ## Jacobians and solves
 
-Assemble dense Jacobians from derivative products when needed. Dependencies
+Assemble dense or CSC Jacobians from colored forward products when needed. Dependencies
 propagate through the plan, so graph adjacency is not the global sparsity pattern.
 Conservative patterns cover every branch allowed by an epoch; a numerical zero
 does not remove an entry.
@@ -188,9 +187,17 @@ flowchart TD
     V --> D
 ```
 
-Sparse assembly is added when scale requires it. Reuse symbolic analysis while
-the pattern is unchanged; reuse numerical factors only while matrix values are
-unchanged. Materialize Jacobians when assembly or repeated products justify
+The plan builds a conservative CSC pattern and deterministic greedy column
+coloring once. Columns sharing a residual row receive different colors. A JVP
+seeds all columns of one color; each stored entry reads its row's result. Dense
+assembly uses the same values and fills structural zeros. No dense global
+Jacobian is needed for sparse assembly. Kernel dependencies default to dense;
+Enzyme does not supply expression-level sparsity. False dependency declarations
+are trusted mathematical contracts, never inferred from sampled zeros.
+
+Sparse solve operators and symbolic factorization caches remain future work.
+Consumers can reuse faer's symbolic analysis while the pattern is unchanged;
+reuse numerical factors only while matrix values are unchanged. Materialize Jacobians when assembly or repeated products justify
 their cost; direct products do not require them.
 
 Solve operators expose explicit mathematical rules. For a nonsingular real
@@ -216,6 +223,59 @@ accuracy. These rules differentiate the solution, not a finite iteration
 sequence. `ImplicitSolve` uses undamped Newton with an explicit initial guess,
 absolute residual tolerance, and iteration limit. Mercury composes solve
 callbacks explicitly; Enzyme does not substitute them inside arbitrary kernels.
+
+## Second-order composition
+
+The extra local rule is the weighted Hessian-vector product
+`D(J(q)^T w)[v]`, holding output weights `w` constant. Typed function macros
+compile it with Enzyme forward-over-reverse. Advanced slice kernels can attach
+a callback; absent rules return `UnsupportedDerivative`.
+
+`gradient()` and `jacobian()` handles are operators. Their first products use
+the original operator's curvature. Their own curvature is unsupported because
+it would require third derivatives. Plan handles share immutable structure and
+keep workspaces separate; no derivative handle retains mutable evaluation state.
+
+`gradient().jacobian().eval(...)` computes a scalar Hessian. Matrix-free consumers
+use the advanced weighted curvature product.
+
+```mermaid
+flowchart TD
+    Q["Point and direction"] --> F["Forward values and tangents"]
+    W["Fixed output weights"] --> B["Reverse cotangents"]
+    F --> H["Local weighted curvature"]
+    B --> H
+    H --> D["Reverse cotangent tangents"]
+    D --> A["Accumulate shared inputs"]
+    A --> R["Global weighted Hessian-vector product"]
+```
+
+For each node, differentiated reverse accumulation is
+`d_input_bar = J^T d_output_bar + H(output_bar) input_tangent`.
+This includes cross-node terms; a collection of local Hessians alone does not.
+
+For `A x = b`, reuse the prepared factors:
+
+```text
+A dx = db - dA x
+Aᵀ λ = w
+Aᵀ dλ = -dAᵀ λ
+H(w) v = [ -dλ xᵀ - λ dxᵀ, dλ ]
+```
+
+For `R(z,q) = 0`, retain the residual's accepted-point linearization:
+
+```text
+R_z dz = -R_q dq
+R_zᵀ λ = w
+c = Hessian(λᵀ R) [dz, dq]
+R_zᵀ dλ = -c_z
+H(w) dq = -c_q - R_qᵀ dλ
+```
+
+These rules differentiate the local solution, including matrix and residual
+variation, without differentiating factorization code or Newton iterations.
+Scratch allocation remains possible; this is not an allocation-bound guarantee.
 
 ## Simulation and replay
 
@@ -249,10 +309,9 @@ immutable plan and its configuration; an epoch number alone is insufficient.
 The trajectory regression fixture demonstrates a fixed checkpoint stride in host code;
 Mercury does not choose a trajectory storage policy.
 
-The initial API guarantees first-order derivatives within fixed modes and
-specified event schedules. Gauss–Newton and quasi-Newton consumers fit this
-scope. Exact second order is unsupported initially; a later capability must
-cover weighted curvature through every active operator, including solves.
+First and second derivatives apply within fixed modes and specified event
+schedules. Every participating operator needs the corresponding rule. Third
+derivatives are unsupported; missing curvature rules produce an explicit error.
 State-triggered event sensitivities require separate event-time/reset rules.
 
 ## Validation
