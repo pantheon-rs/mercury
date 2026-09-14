@@ -12,11 +12,22 @@ pub struct Shape {
 }
 
 /// An immutable numerical implementation, shared by plan evaluations.
+///
+/// Calculations must be deterministic and free of external side effects: plans
+/// may prune unreachable instances and derivative calls may replay their values.
 pub trait Operator: Send + Sync {
     /// Fixed dimensions of this instance.
     ///
     /// See the [example](crate::advanced#operator-contract).
     fn shape(&self) -> Shape;
+
+    /// Highest implemented derivative order: 0 (values), 1 (JVP/VJP), or 2
+    /// (also weighted curvature). This describes rules, not smoothness at a point.
+    /// Custom second-order operators must override the first-order default.
+    /// See the [example](crate::advanced#derivative-capabilities).
+    fn derivative_order(&self) -> u8 {
+        1
+    }
 
     /// Allocate local storage once for a plan workspace.
     ///

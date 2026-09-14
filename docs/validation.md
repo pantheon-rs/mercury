@@ -14,7 +14,9 @@ and the adjoint identity. The implementation adds:
 | Simple plan API | Owned values and gradients, faer Jacobian layout, scalar-output validation, solves, error recovery and empty outputs |
 | Kernel macro/adapter | Analytic derivatives, inactive configuration, runtime dimensions, batches, preserved seeds, domain and buffer failures |
 | Runtime plan | Fan-out, repeated inputs/outputs, finite differences, adjoint identity, Jacobian assembly, cycle/foreign-handle rejection, failure recovery |
-| Solves | Pivoted nonsymmetric systems, perturb-and-resolve, cached products, final-root Jacobian, composed residual plans, singularity/nonconvergence |
+| Solves | Pivoted nonsymmetric systems, perturb-and-resolve, accepted-root factors, matrix-free parameter products, residual scaling/correction acceptance, linear diagnostics, composed residuals and failure recovery |
+| Preparation | No dependency callbacks during build/value/products; cached structure shared by clones; one VJP for a wide dense Jacobian; unreachable-node pruning with full wiring validation |
+| Aerospace examples | Quaternion norm/rotation invariants, local attitude JVP/VJP and curvature, piecewise table slopes, transverse impact-time and reset sensitivities |
 | Flight trajectory | RK4 analytic cases, ten sensitivities by finite differences, adjoint identity, exact fixed-schedule checkpoint replay |
 
 A compile-fail doctest checks that a borrowed linearization prevents mutation
@@ -117,11 +119,83 @@ rules and automatic curvature generation for dynamic slice kernels are absent.
 Runtime batches currently loop over scalar derivatives. The native-width probes
 above do not establish a faster adapter. Workspaces reuse graph buffers; batch
 growth, dense Jacobian assembly, and faer's high-level factor/solve paths may
-allocate. LU rejects zero/non-finite pivots without providing a condition estimate.
-Newton requires a suitable initial guess. Replay evidence covers the example's
+allocate. LU rejects zero/non-finite pivots. The optional dense solve report computes
+normwise backward error and reciprocal condition with additional solves; ordinary
+plan execution does not compute these diagnostics. Newton checks scaled residuals
+and corrections, but still requires a suitable initial guess. Replay evidence covers the example's
 fixed plan and held-input schedule on the pinned build/platform.
 
 `deny.toml` acknowledges [RUSTSEC-2024-0436](https://rustsec.org/advisories/RUSTSEC-2024-0436):
 faer transitively uses the unmaintained `paste` macro crate. An isolated check of
 faer 0.24.4 found the same dependency. The advisory reports no vulnerability or
 patched version; the exception stays specific to this maintenance notice.
+
+## Tested numerical envelope
+
+`tests/aerospace.rs` runs the actual attitude, first-order table, and impact example
+kernels. Rotation checks use angles from -2 to 2 radians, quaternion magnitudes
+from `1e-3` to `1e3`, and forces from `1e-6` to `1e6` newtons. Independent references
+are planar sine/cosine rotation, force-norm preservation and the infinitesimal
+cross-product Jacobian. A nonzero local attitude chart checks JVPs, adjoint identity
+and weighted curvature against differences at steps `1e-4`, `1e-5`, and `1e-6`.
+
+The table checks both smooth cells, including points `0.999` and `1.001` around
+the knot at 1, without crossing it in finite differences. No differentiability
+claim is made at the knot. Impact checks compare three transverse crossings with
+the closed form `e * sqrt(v² + 2gh)`, perturb-and-resolve gradients, and an analytic
+second derivative. These cases exercise a selected event root/reset, not general
+hybrid trajectory sensitivities.
+
+Solver regressions include the same square-root residual scaled by 1 and `1e-12`,
+both default and explicit convergence scales, and a 128-parameter root whose
+preparation uses one state-column JVP. Parameter JVP/VJP calls are counted and
+callback failure must invalidate the enclosing linearization. Diagonal and
+triangular linear systems independently check backward error and reciprocal
+condition, including an exactly solved but ill-conditioned matrix.
+
+This evidence is specific to the pinned compiler and tested expressions/domains.
+It does not remove the ignored Enzyme overflow regression, certify arbitrary
+kernels, or promise cross-platform equivalence. Add independent numerical evidence
+when admitting a new model or expanding its parameter envelope. Capability metadata
+describes available derivative rules, never pointwise smoothness or accuracy.
+
+## Execution measurements
+
+Run `./scripts/bench.sh --bench execution` in the pinned environment. The harness
+warms reusable storage and reports wall-clock time per call for plan construction,
+value/linearization, JVP/VJP, curvature, Jacobian assembly, and 100-step checkpointed
+RK4 replay. It black-boxes inputs/results and has no added benchmark dependencies.
+Call-count tests establish direction selection and implicit preparation costs;
+the benchmark does not count allocator calls or claim an allocation bound.
+
+A benchmark probe using a 32-element typed array and an iterator-based sum of
+squares failed nested Enzyme type analysis during release linking on this pin.
+The committed timing kernel uses a four-element explicit arithmetic block.
+Clippy alone does not exercise this code-generation boundary; examples and the
+benchmark must also be built and run. This is evidence for those expressions,
+not a general prohibition on iterators or larger arrays.
+
+## Control-flow examples
+
+The six examples beginning with `loop_power` in the
+[example guide](../examples/README.md#loops-and-conditionals-increasing-complexity)
+are executable numerical checks as well as demonstrations. They cover fixed loops
+with first/second derivatives, active `if/else`, conditionals inside an array loop,
+inactive runtime counts including zero iterations, and a bounded active `while`
+condition. The latter checks finite differences only where the stopping decisions
+stay unchanged and demonstrates a discontinuous stopping boundary using values.
+
+`loop_flight` checks a closed-form discrete Euler trajectory, both initial velocity
+signs with thrust and quadratic drag, all ten Jacobian entries by perturbing the
+rollout inputs, and the JVP/VJP adjoint identity. The thrust schedule and step count
+are inactive; these checks do not claim sensitivities to a changing event schedule.
+Each example contains assertions and must be run through `scripts/example.sh` to
+validate execution; Clippy or merely compiling the example is insufficient.
+
+The pinned compiler rejected runtime decay and flight variants whose loop states
+were initialized directly from active slice entries (`Cannot deduce type of phi`).
+The committed decay kernel accumulates a retention factor from 1, then multiplies
+the initial state; flight accumulates altitude/velocity changes from 0, then adds
+the initial state. These formulations compile and pass the numerical checks.
+This is evidence for these kernels, not a general restriction on loop syntax or
+a guarantee for every runtime loop body.

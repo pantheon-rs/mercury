@@ -36,7 +36,10 @@ pub enum Error {
     /// A solve matrix is singular.
     Singular,
     /// A nonlinear solve did not converge.
-    NonConvergence,
+    NonConvergence {
+        /// Diagnostics at the last evaluated iterate.
+        report: crate::NewtonReport,
+    },
     /// An operator failed during plan execution.
     Operator {
         /// Node index in insertion order.
@@ -74,7 +77,11 @@ impl fmt::Display for Error {
                 f.write_str("operator does not support this derivative order")
             }
             Self::Singular => f.write_str("solve matrix is singular"),
-            Self::NonConvergence => f.write_str("nonlinear solve did not converge"),
+            Self::NonConvergence { report } => write!(
+                f,
+                "nonlinear solve did not converge after {} updates (scaled residual {}, correction {})",
+                report.iterations, report.residual_norm, report.correction_norm
+            ),
             Self::Operator { node, source } => write!(f, "operator {node}: {source}"),
         }
     }

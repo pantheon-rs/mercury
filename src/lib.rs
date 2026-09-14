@@ -12,7 +12,7 @@ mod sparse;
 pub use error::{Error, Result};
 pub use mercury_macros::function;
 pub use plan::{Gradient, Hessian, Jacobian, NodeId, Plan, PlanBuilder, Source};
-pub use solve::{DenseSolve, ImplicitSolve};
+pub use solve::{DenseSolve, ImplicitSolve, LinearSolveReport, NewtonReport};
 
 pub mod advanced;
 

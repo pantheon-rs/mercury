@@ -17,7 +17,8 @@ mod shape;
 /// argument is an array, derivative results have fields named after arguments.
 /// Scalar functions expose `gradient()` and `value_and_gradient()`; array-returning
 /// functions expose `jacobian()`. Derivatives follow argument declaration order.
-/// Scalar gradients expose `jacobian().eval(...)` for the Hessian. First
+/// `#[function(Name, first_order)]` omits nested autodiff and the typed Hessian API.
+/// By default, scalar gradients expose `jacobian().eval(...)` for the Hessian. First
 /// derivative handles are also operators; third derivatives are unsupported.
 /// The generated type also implements `mercury::advanced::Operator` for graph composition.
 ///

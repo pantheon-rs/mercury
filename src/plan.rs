@@ -4,8 +4,8 @@ mod curvature;
 
 use std::collections::{BTreeSet, VecDeque};
 use std::ops::Range;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use crate::error::{check_finite, check_len};
 use crate::{Error, Operator, OperatorWorkspace, PlanExecution, Result, Shape};
@@ -165,16 +165,17 @@ impl PlanBuilder {
             })
             .collect();
         nodes.sort_by_key(|node| rank[node.index]);
-        let dependencies = output_dependencies(self.inputs, slots, &nodes, &outputs);
-        let sparsity = Arc::new(crate::sparse::Sparsity::new(self.inputs, &dependencies));
+        // Validate the entire submitted graph before pruning. Unpublished pure
+        // calculations have no execution, failure, or derivative obligations.
+        let (nodes, outputs, slots) = reachable_nodes(self.inputs, slots, nodes, outputs);
         Ok(Plan {
             epoch: self.epoch,
             inputs: self.inputs,
             nodes: nodes.into(),
             outputs: outputs.into(),
             slots,
-            dependencies: dependencies.into(),
-            sparsity,
+            dependencies: Arc::new(OnceLock::new()),
+            sparsity: Arc::new(OnceLock::new()),
         })
     }
 }
@@ -185,6 +186,45 @@ struct Node {
     sources: Vec<usize>,
     inputs: Range<usize>,
     outputs: Range<usize>,
+}
+
+fn reachable_nodes(
+    inputs: usize,
+    slots: usize,
+    mut nodes: Vec<Node>,
+    mut outputs: Vec<usize>,
+) -> (Vec<Node>, Vec<usize>, usize) {
+    let mut needed = vec![false; slots];
+    for &output in &outputs {
+        needed[output] = true;
+    }
+    for node in nodes.iter().rev() {
+        if needed[node.outputs.clone()].iter().any(|&entry| entry) {
+            for &source in &node.sources {
+                needed[source] = true;
+            }
+        }
+    }
+    nodes.retain(|node| needed[node.outputs.clone()].iter().any(|&entry| entry));
+    let mut remap: Vec<_> = (0..slots).collect();
+    let mut slots = inputs;
+    for node in &mut nodes {
+        for source in &mut node.sources {
+            *source = remap[*source];
+        }
+        let middle = slots + node.inputs.len();
+        let end = middle + node.outputs.len();
+        for (old, new) in node.outputs.clone().zip(middle..end) {
+            remap[old] = new;
+        }
+        node.inputs = slots..middle;
+        node.outputs = middle..end;
+        slots = end;
+    }
+    for output in &mut outputs {
+        *output = remap[*output];
+    }
+    (nodes, outputs, slots)
 }
 
 fn execution_order(consumers: &[Vec<usize>], mut indegree: Vec<usize>) -> Result<Vec<usize>> {
@@ -244,11 +284,16 @@ pub struct Plan {
     nodes: Arc<[Node]>,
     outputs: Arc<[usize]>,
     slots: usize,
-    dependencies: Arc<[Vec<usize>]>,
-    sparsity: Arc<crate::sparse::Sparsity>,
+    dependencies: Arc<OnceLock<Vec<Vec<usize>>>>,
+    sparsity: Arc<OnceLock<crate::sparse::Sparsity>>,
 }
 
 impl Plan {
+    fn sparsity(&self) -> &crate::sparse::Sparsity {
+        self.sparsity
+            .get_or_init(|| crate::sparse::Sparsity::new(self.inputs, self.dependencies()))
+    }
+
     /// Start a new plan epoch with this many active scalar inputs.
     ///
     /// See the [example](crate#build-a-graph).
@@ -406,23 +451,23 @@ impl Jacobian {
     /// The fixed CSC pattern, including entries that happen to be zero at a point.
     /// See the [example](crate#sparse-jacobians).
     pub fn sparsity(&self) -> faer::sparse::SymbolicSparseColMatRef<'_, usize> {
-        self.plan.sparsity.symbolic.as_ref()
+        self.plan.sparsity().symbolic.as_ref()
     }
 
-    /// Evaluate into an owned faer sparse matrix using one JVP per column color.
+    /// Evaluate into an owned faer sparse matrix using colored JVPs or reverse rows.
     /// See the [example](crate#sparse-jacobians).
     ///
     /// # Errors
     /// Rejects invalid inputs and propagates numerical failures.
     pub fn eval_sparse(&self, point: &[f64]) -> Result<faer::sparse::SparseColMat<usize, f64>> {
         self.plan.check_point(point)?;
-        let mut values = vec![0.0; self.plan.sparsity.symbolic.row_idx().len()];
+        let mut values = vec![0.0; self.plan.sparsity().symbolic.row_idx().len()];
         let mut workspace = self.plan.workspace();
         self.plan
             .linearize(point, &mut workspace)?
             .sparse_jacobian(&mut values)?;
         Ok(faer::sparse::SparseColMat::new(
-            self.plan.sparsity.symbolic.clone(),
+            self.plan.sparsity().symbolic.clone(),
             values,
         ))
     }
@@ -457,7 +502,9 @@ impl PlanExecution for Plan {
 
     /// Sorted input indices that may affect each published output.
     fn dependencies(&self) -> &[Vec<usize>] {
-        &self.dependencies
+        self.dependencies.get_or_init(|| {
+            output_dependencies(self.inputs, self.slots, &self.nodes, &self.outputs)
+        })
     }
 
     /// Evaluate values. Output is valid only on success.
@@ -508,6 +555,10 @@ impl Plan {
             derivatives: Vec::new(),
             seeds: Vec::new(),
             products: Vec::new(),
+            assembly_seed: Vec::new(),
+            assembly_product: Vec::new(),
+            assembly_values: Vec::new(),
+            curvature: curvature::Scratch::default(),
             valid: false,
         }
     }
@@ -558,6 +609,14 @@ impl Plan {
 }
 
 impl Operator for Plan {
+    fn derivative_order(&self) -> u8 {
+        self.nodes
+            .iter()
+            .map(|node| node.operator.derivative_order())
+            .min()
+            .unwrap_or(2)
+    }
+
     fn shape(&self) -> Shape {
         Shape {
             inputs: self.inputs,
@@ -570,7 +629,7 @@ impl Operator for Plan {
     }
 
     fn depends_on(&self, output: usize, input: usize) -> bool {
-        self.dependencies[output].binary_search(&input).is_ok()
+        self.dependencies()[output].binary_search(&input).is_ok()
     }
 }
 
@@ -583,6 +642,10 @@ pub struct Workspace<'p> {
     derivatives: Vec<f64>,
     seeds: Vec<f64>,
     products: Vec<f64>,
+    assembly_seed: Vec<f64>,
+    assembly_product: Vec<f64>,
+    assembly_values: Vec<f64>,
+    curvature: curvature::Scratch,
     valid: bool,
 }
 
@@ -604,6 +667,10 @@ impl<'p> Workspace<'p> {
 }
 
 impl Operator for Gradient {
+    fn derivative_order(&self) -> u8 {
+        self.plan.derivative_order().saturating_sub(1)
+    }
+
     fn shape(&self) -> Shape {
         Shape {
             inputs: self.plan.inputs,
@@ -616,6 +683,10 @@ impl Operator for Gradient {
 }
 
 impl Operator for Jacobian {
+    fn derivative_order(&self) -> u8 {
+        self.plan.derivative_order().saturating_sub(1)
+    }
+
     fn shape(&self) -> Shape {
         Shape {
             inputs: self.plan.inputs,
@@ -794,16 +865,22 @@ impl Linearization<'_, '_> {
                 .ok_or(Error::SizeOverflow)?,
         )?;
         let plan = self.workspace.plan;
-        let mut values = vec![0.0; plan.sparsity.symbolic.row_idx().len()];
+        let pattern = &plan.sparsity().symbolic;
+        let mut values = std::mem::take(&mut self.workspace.assembly_values);
+        values.resize(pattern.row_idx().len(), 0.0);
         output.fill(f64::NAN);
-        self.sparse_jacobian(&mut values)?;
+        let result = self.sparse_jacobian(&mut values);
+        if result.is_err() {
+            self.workspace.assembly_values = values;
+            return result;
+        }
         output.fill(0.0);
-        let pattern = &plan.sparsity.symbolic;
         for column in 0..shape.inputs {
             for entry in pattern.col_ptr()[column]..pattern.col_ptr()[column + 1] {
                 output[pattern.row_idx()[entry] * shape.inputs + column] = values[entry];
             }
         }
+        self.workspace.assembly_values = values;
         Ok(())
     }
 
@@ -815,27 +892,66 @@ impl Linearization<'_, '_> {
     pub fn sparse_jacobian(&mut self, output: &mut [f64]) -> Result<()> {
         self.check_valid()?;
         let plan = self.workspace.plan;
-        let pattern = &plan.sparsity.symbolic;
+        let sparsity = plan.sparsity();
+        let pattern = &sparsity.symbolic;
         check_len("sparse Jacobian", output.len(), pattern.row_idx().len())?;
         output.fill(f64::NAN);
-        let mut seed = vec![0.0; plan.inputs];
-        let mut product = vec![0.0; plan.outputs.len()];
-        for columns in &plan.sparsity.colors {
-            seed.fill(0.0);
-            for &column in columns {
-                seed[column] = 1.0;
-            }
-            if let Err(error) = self.jvp(&seed, &mut product) {
-                output.fill(f64::NAN);
-                return Err(error);
-            }
-            for &column in columns {
-                for entry in pattern.col_ptr()[column]..pattern.col_ptr()[column + 1] {
-                    output[entry] = product[pattern.row_idx()[entry]];
+        let reverse = plan.outputs.len() < sparsity.colors.len();
+        let mut seed = std::mem::take(&mut self.workspace.assembly_seed);
+        let mut product = std::mem::take(&mut self.workspace.assembly_product);
+        seed.resize(
+            if reverse {
+                plan.outputs.len()
+            } else {
+                plan.inputs
+            },
+            0.0,
+        );
+        product.resize(
+            if reverse {
+                plan.inputs
+            } else {
+                plan.outputs.len()
+            },
+            0.0,
+        );
+        let result = (|| {
+            if reverse {
+                for row in 0..plan.outputs.len() {
+                    seed.fill(0.0);
+                    seed[row] = 1.0;
+                    self.vjp(&seed, &mut product)?;
+                    for &column in &plan.dependencies()[row] {
+                        let start = pattern.col_ptr()[column];
+                        let end = pattern.col_ptr()[column + 1];
+                        // Pattern and row dependencies come from the same immutable cache.
+                        let entry =
+                            pattern.row_idx()[start..end].partition_point(|&index| index < row);
+                        output[start + entry] = product[column];
+                    }
+                }
+            } else {
+                for columns in &sparsity.colors {
+                    seed.fill(0.0);
+                    for &column in columns {
+                        seed[column] = 1.0;
+                    }
+                    self.jvp(&seed, &mut product)?;
+                    for &column in columns {
+                        for entry in pattern.col_ptr()[column]..pattern.col_ptr()[column + 1] {
+                            output[entry] = product[pattern.row_idx()[entry]];
+                        }
+                    }
                 }
             }
+            Ok(())
+        })();
+        self.workspace.assembly_seed = seed;
+        self.workspace.assembly_product = product;
+        if result.is_err() {
+            output.fill(f64::NAN);
         }
-        Ok(())
+        result
     }
 
     const fn check_valid(&self) -> Result<()> {

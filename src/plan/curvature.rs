@@ -4,6 +4,18 @@ use super::{Linearization, Workspace};
 use crate::error::{check_finite, check_len};
 use crate::{Error, Result};
 
+/// Scratch grows on the first curvature call, then belongs to this workspace.
+#[derive(Default)]
+pub(super) struct Scratch {
+    tangents: Vec<f64>,
+    bars: Vec<f64>,
+    delta_bars: Vec<f64>,
+    direction: Vec<f64>,
+    bar: Vec<f64>,
+    delta_bar: Vec<f64>,
+    curved: Vec<f64>,
+}
+
 impl Linearization<'_, '_> {
     /// Apply the Hessian of a fixed weighted sum of the published outputs.
     /// See the [example](crate::advanced#second-order-products).
@@ -42,63 +54,81 @@ impl Workspace<'_> {
         output: &mut [f64],
     ) -> Result<()> {
         let plan = self.plan;
-        let mut tangents = vec![0.0; plan.slots];
-        tangents[..plan.inputs].copy_from_slice(direction);
+        let scratch = &mut self.curvature;
+        scratch.tangents.resize(plan.slots, 0.0);
+        scratch.tangents.fill(0.0);
+        scratch.tangents[..plan.inputs].copy_from_slice(direction);
         for (node, operator) in plan.nodes.iter().zip(&mut self.operators) {
-            let seed: Vec<_> = node
-                .sources
-                .iter()
-                .map(|&source| tangents[source])
-                .collect();
+            scratch.direction.resize(node.inputs.len(), 0.0);
+            for (entry, &source) in scratch.direction.iter_mut().zip(&node.sources) {
+                *entry = scratch.tangents[source];
+            }
             operator
                 .jvp(
                     &self.values[node.inputs.clone()],
-                    &seed,
-                    &mut tangents[node.outputs.clone()],
+                    &scratch.direction,
+                    &mut scratch.tangents[node.outputs.clone()],
                 )
-                .and_then(|()| check_finite("operator tangent", &tangents[node.outputs.clone()]))
+                .and_then(|()| {
+                    check_finite("operator tangent", &scratch.tangents[node.outputs.clone()])
+                })
                 .map_err(|source| Error::Operator {
                     node: node.index,
                     source: Box::new(source),
                 })?;
         }
-        let mut bars = vec![0.0; plan.slots];
-        let mut delta_bars = vec![0.0; plan.slots];
+        scratch.bars.resize(plan.slots, 0.0);
+        scratch.bars.fill(0.0);
+        scratch.delta_bars.resize(plan.slots, 0.0);
+        scratch.delta_bars.fill(0.0);
         for (&source, &weight) in plan.outputs.iter().zip(weights) {
-            bars[source] += weight;
+            scratch.bars[source] += weight;
         }
-        check_finite("output cotangents", &bars)?;
+        check_finite("output cotangents", &scratch.bars)?;
         for (node, operator) in plan.nodes.iter().zip(&mut self.operators).rev() {
             let input = &self.values[node.inputs.clone()];
-            let direction: Vec<_> = node
-                .sources
-                .iter()
-                .map(|&source| tangents[source])
-                .collect();
-            let mut bar = vec![0.0; node.inputs.len()];
-            let mut delta_bar = vec![0.0; node.inputs.len()];
-            let mut curved = vec![0.0; node.inputs.len()];
+            scratch.direction.resize(node.inputs.len(), 0.0);
+            for (entry, &source) in scratch.direction.iter_mut().zip(&node.sources) {
+                *entry = scratch.tangents[source];
+            }
+            for buffer in [
+                &mut scratch.bar,
+                &mut scratch.delta_bar,
+                &mut scratch.curved,
+            ] {
+                buffer.resize(node.inputs.len(), f64::NAN);
+                buffer.fill(f64::NAN);
+            }
             let result = (|| {
-                operator.vjp(input, &bars[node.outputs.clone()], &mut bar)?;
-                operator.vjp(input, &delta_bars[node.outputs.clone()], &mut delta_bar)?;
-                operator.curvature(input, &bars[node.outputs.clone()], &direction, &mut curved)?;
-                check_finite("operator cotangent", &bar)?;
-                check_finite("operator cotangent tangent", &delta_bar)?;
-                check_finite("operator curvature", &curved)
+                operator.vjp(input, &scratch.bars[node.outputs.clone()], &mut scratch.bar)?;
+                operator.vjp(
+                    input,
+                    &scratch.delta_bars[node.outputs.clone()],
+                    &mut scratch.delta_bar,
+                )?;
+                operator.curvature(
+                    input,
+                    &scratch.bars[node.outputs.clone()],
+                    &scratch.direction,
+                    &mut scratch.curved,
+                )?;
+                check_finite("operator cotangent", &scratch.bar)?;
+                check_finite("operator cotangent tangent", &scratch.delta_bar)?;
+                check_finite("operator curvature", &scratch.curved)
             })();
             result.map_err(|source| Error::Operator {
                 node: node.index,
                 source: Box::new(source),
             })?;
             for (entry, &source) in node.sources.iter().enumerate() {
-                bars[source] += bar[entry];
-                delta_bars[source] += delta_bar[entry] + curved[entry];
-                if !bars[source].is_finite() || !delta_bars[source].is_finite() {
+                scratch.bars[source] += scratch.bar[entry];
+                scratch.delta_bars[source] += scratch.delta_bar[entry] + scratch.curved[entry];
+                if !scratch.bars[source].is_finite() || !scratch.delta_bars[source].is_finite() {
                     return Err(Error::NonFinite("accumulated curvature"));
                 }
             }
         }
-        output.copy_from_slice(&delta_bars[..plan.inputs]);
+        output.copy_from_slice(&scratch.delta_bars[..plan.inputs]);
         Ok(())
     }
 }

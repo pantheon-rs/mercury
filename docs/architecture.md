@@ -80,7 +80,8 @@ runtime-composed residuals inside an implicit solve.
 | Linearization | Immutable borrows of one point and plan, plus exclusive access to its workspace |
 
 Graph/configuration edits produce a new plan epoch, published between
-evaluations or accepted steps. Validate dimensions and cycles before publication.
+evaluations or accepted steps. Validate all submitted dimensions and cycles before publication, then prune
+unreachable nodes and compact their storage. A retained node executes all of its outputs.
 Never change topology during a derivative sweep or nonlinear solve.
 
 ## Evaluation and linearization
@@ -165,10 +166,10 @@ may avoid copies. This contract does not require allocation per edge.
 
 ## Jacobians and solves
 
-Assemble dense or CSC Jacobians from colored forward products when needed. Dependencies
-propagate through the plan, so graph adjacency is not the global sparsity pattern.
-Conservative patterns cover every branch allowed by an epoch; a numerical zero
-does not remove an entry.
+Assemble dense or CSC Jacobians from colored forward products or uncolored reverse rows
+when needed. Dependencies propagate through the plan, so graph adjacency is not the
+global sparsity pattern. Conservative patterns cover every branch allowed by an epoch; a
+numerical zero does not remove an entry.
 
 faer is the sole general linear algebra dependency. Use its matrices, views
 and factorizations. Keep shape, stride and
@@ -187,18 +188,20 @@ flowchart TD
     V --> D
 ```
 
-The plan builds a conservative CSC pattern and deterministic greedy column
-coloring once. Columns sharing a residual row receive different colors. A JVP
-seeds all columns of one color; each stored entry reads its row's result. Dense
-assembly uses the same values and fills structural zeros. No dense global
-Jacobian is needed for sparse assembly. Kernel dependencies default to dense;
-Enzyme does not supply expression-level sparsity. False dependency declarations
-are trusted mathematical contracts, never inferred from sampled zeros.
+The plan lazily builds conservative dependencies and a CSC pattern with deterministic
+column coloring on structural inspection or assembly. Value and derivative products do
+not prepare these caches. Columns sharing a residual row receive different colors.
+Assembly chooses reverse rows when fewer products are needed; otherwise a JVP seeds all
+columns of one color; each stored entry reads its row's result. Dense assembly uses the
+same values and fills structural zeros. No dense global Jacobian is needed for sparse
+assembly. Kernel dependencies default to dense; Enzyme does not supply expression-level
+sparsity. False dependency declarations are trusted mathematical contracts, never
+inferred from sampled zeros.
 
-Sparse solve operators and symbolic factorization caches remain future work.
-Consumers can reuse faer's symbolic analysis while the pattern is unchanged;
-reuse numerical factors only while matrix values are unchanged. Materialize Jacobians when assembly or repeated products justify
-their cost; direct products do not require them.
+Sparse solve operators and symbolic factorization caches remain future work. Consumers
+can reuse faer's symbolic analysis while the pattern is unchanged; reuse numerical
+factors only while matrix values are unchanged. Materialize Jacobians when assembly or
+repeated products justify their cost; direct products do not require them.
 
 Solve operators expose explicit mathematical rules. For a nonsingular real
 system `A x = b`:
@@ -208,27 +211,31 @@ JVP:  A dx = db - dA x
 VJP:  Aᵀ λ = x_bar;  b_bar = λ;  A_bar = -λ xᵀ
 ```
 
-Reuse primal factors. For sparse inputs, form cotangents only for represented
-entries. For a converged root `R(z, q) = 0`:
+Reuse primal factors. `DenseSolve::solve_with_report` optionally measures backward error
+and reciprocal condition; ordinary plan solves do not pay that diagnostic cost. For
+sparse inputs, form cotangents only for represented entries. For a converged root `R(z,
+q) = 0`:
 
 ```text
 JVP:  R_z dz = -R_q dq
 VJP:  R_zᵀ λ = z_bar;  q_bar = -R_qᵀ λ
 ```
 
-Implicit rules require a differentiable local solution and invertible relevant
-Jacobian. Evaluate residual derivatives at the returned solution; rebuild
-factors left over from an earlier iterate. Convergence and conditioning affect
-accuracy. These rules differentiate the solution, not a finite iteration
-sequence. `ImplicitSolve` uses undamped Newton with an explicit initial guess,
-absolute residual tolerance, and iteration limit. Mercury composes solve
-callbacks explicitly; Enzyme does not substitute them inside arbitrary kernels.
+Implicit rules require a differentiable local solution and invertible relevant Jacobian.
+Evaluate residual derivatives at the returned solution; rebuild factors left over from
+an earlier iterate. Convergence and conditioning affect accuracy. These rules
+differentiate the solution, not a finite iteration sequence. Only `R_z` is materialized;
+parameter products use the accepted residual workspace directly. Diagnostics and scaled
+stopping rules are specified in the API guide. `ImplicitSolve` uses undamped Newton with
+an explicit initial guess, a tolerance on scaled residual and Newton-correction norms,
+and iteration limit. Mercury composes solve callbacks explicitly; Enzyme does not
+substitute them inside arbitrary kernels.
 
 ## Second-order composition
 
-The extra local rule is the weighted Hessian-vector product
-`D(J(q)^T w)[v]`, holding output weights `w` constant. Typed function macros
-compile it with Enzyme forward-over-reverse. Advanced slice kernels can attach
+The extra local rule is the weighted Hessian-vector product `D(J(q)^T w)[v]`, holding
+output weights `w` constant. Typed function macros compile it with Enzyme
+forward-over-reverse unless `first_order` is selected. Advanced slice kernels can attach
 a callback; absent rules return `UnsupportedDerivative`.
 
 `gradient()` and `jacobian()` handles are operators. Their first products use
@@ -273,9 +280,11 @@ R_zᵀ dλ = -c_z
 H(w) dq = -c_q - R_qᵀ dλ
 ```
 
-These rules differentiate the local solution, including matrix and residual
-variation, without differentiating factorization code or Newton iterations.
-Scratch allocation remains possible; this is not an allocation-bound guarantee.
+These rules differentiate the local solution, including matrix and residual variation,
+without differentiating factorization code or Newton iterations. Local solve and plan
+curvature scratch belongs to the evaluation workspace. First-use growth and
+callback/factorization allocation remain possible; this is not an allocation-bound
+guarantee.
 
 ## Simulation and replay
 
@@ -312,7 +321,9 @@ Mercury does not choose a trajectory storage policy.
 First and second derivatives apply within fixed modes and specified event
 schedules. Every participating operator needs the corresponding rule. Third
 derivatives are unsupported; missing curvature rules produce an explicit error.
-State-triggered event sensitivities require separate event-time/reset rules.
+State-triggered event sensitivities require explicit event-time/reset rules.
+The impact example composes a selected transverse event root and reset using existing
+operators; it does not implement a general event scheduler or saltation framework.
 
 ## Validation
 

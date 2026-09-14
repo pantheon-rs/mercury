@@ -12,7 +12,7 @@ calculation operations for ordinary users:
 
 ## Scalar functions
 
-`function(Name)` names the generated type. `new()` constructs a stateless handle;
+`function(Name)` annotates a module-level function and names the generated type. `new()` constructs a stateless handle;
 compilation happens during the build. The original Rust function stays callable.
 
 ```rust
@@ -77,13 +77,18 @@ A plan has runtime dimensions. `eval` returns `Vec<f64>` even for one output;
 `gradient().eval` returns `Vec<f64>`; `jacobian().eval` returns `faer::Mat<f64>`,
 indexed by `(row, column)`. `value_and_gradient` returns `(f64, Vec<f64>)`.
 Gradient operations require exactly one published output, checked at evaluation.
-The returned `Gradient` and `Jacobian` handles borrow the plan; results are owned.
+The returned `Gradient` and `Jacobian` handles own a shared copy of the immutable plan; results are owned.
 
 ## Build a graph
 
 `Plan::builder(n)` creates a `PlanBuilder` with `n` global inputs. `add` connects
 an operator and returns a `NodeId`. `node.output(i)` selects one of its outputs.
-`build` selects the graph outputs, validates connections, and consumes the builder.
+`build` selects the graph outputs, validates all submitted connections and cycles,
+and consumes the builder. It then removes nodes unreachable from the published
+outputs and compacts workspace storage. Removed nodes never execute and do not
+contribute domain failures or derivative requirements. A node is retained as a
+whole if any of its outputs is needed; pruning does not use sampled zeros.
+See [`preparation.rs`](https://github.com/pantheon-rs/mercury/blob/main/examples/preparation.rs).
 
 ```rust
 use mercury::{DenseSolve, Plan, Source};
@@ -273,3 +278,113 @@ second-order residual and a converged, locally regular root. Advanced slice
 kernels need an explicit curvature callback. Missing rules return
 `Error::UnsupportedDerivative`, with the failing node attached by a plan.
 Third derivatives are unsupported. No finite-difference fallback is used.
+
+## First-order functions
+
+`#[function(Name, first_order)]` generates value, JVP and VJP entry points, and
+omits nested autodiff and the typed Hessian API. The default remains second order.
+This is useful for a kernel whose first-order compiler path has been validated
+independently of its curvature path. It does not change the function's domain.
+
+```rust
+#![feature(autodiff)]
+use mercury::advanced::Operator;
+#[mercury::function(Square, first_order)]
+fn square(x: f64) -> f64 { x * x }
+# fn main() -> mercury::Result<()> {
+let function = Square::new();
+assert_eq!(function.gradient().eval(3.0)?, [6.0]);
+assert_eq!(function.derivative_order(), 1);
+assert_eq!(function.gradient().derivative_order(), 0);
+# Ok(())
+# }
+```
+
+A first-order function's gradient/Jacobian handle can evaluate derivative values,
+but its own products return `UnsupportedDerivative`. For a typed scalar handle,
+`gradient().jacobian()` is absent when `first_order` is selected. Runtime plans
+retain their uniform API and report unsupported orders through `Result`.
+The [table example](https://github.com/pantheon-rs/mercury/blob/main/examples/first_order.rs)
+checks slopes on either side of an interpolation knot; it makes no derivative
+claim at the knot itself.
+
+## Scaled roots and reports
+
+Newton uses one tolerance for two dimensionless infinity norms:
+
+- Residual: `max_i abs(R[i]) / residual_scales[i]`.
+- Correction: `max_i abs(dz[i]) / max(state_scales[i], abs(z[i]))`,
+  where `R_z dz = -R` at the candidate point.
+
+Both must meet the tolerance. Default scales are one. `with_scaling` accepts
+positive finite characteristic magnitudes in the residuals' and unknowns' units;
+it changes convergence tests, not the residual equations or matrix equilibration.
+Multiplying an equation by `s > 0` requires multiplying its residual scale by `s`
+to preserve the same stopping criterion. The correction check also prevents a
+small raw residual alone from accepting a distant root.
+
+```rust
+#![feature(autodiff)]
+#[mercury::function(Residual)]
+fn residual(z: f64, q: f64) -> f64 { 1e-12 * (z*z - q) }
+# fn main() -> mercury::Result<()> {
+let solve = mercury::ImplicitSolve::new(Residual::new(), vec![1.0], 1e-10, 20)?
+    .with_scaling(vec![1e-12], vec![2.0])?;
+let (root, report) = solve.solve_with_report(&[4.0])?;
+assert!((root[0] - 2.0).abs() < 1e-10);
+assert!(report.residual_norm <= 1e-10);
+assert!(report.correction_norm <= 1e-10);
+# Ok(())
+# }
+```
+
+`solve_with_report` allocates one workspace and returns values plus a
+`NewtonReport`. `iterations` counts applied Newton updates; both norms refer to
+the returned point. Plan execution uses the same acceptance rule and publishes
+only the numerical values. On exhaustion, `Error::NonConvergence { report }`
+contains diagnostics at the last evaluated iterate. Other errors keep their
+original domain/factorization context, wrapped with node indices by plans.
+
+An exactly zero floating-point residual permits value-only success without
+factorization, with a reported correction norm of zero. Linearization always
+requires nonsingular `R_z`, including at an exact root. These are convergence
+diagnostics, not certified forward-error or sensitivity bounds. Scales do not
+prevent underflow, overflow, ill-conditioning or convergence to an unintended root.
+Newton remains undamped, restarts from its configured guess on every solve, and
+requires a suitable basin. There is no hidden warm start.
+
+Implicit JVP/VJP and curvature use the retained residual workspace at the
+accepted point. Only `R_z` is assembled; parameter derivatives use residual
+products, never a stored dense `R_q`. Each product can replay residual kernels
+and can fail independently, invalidating the enclosing plan linearization.
+See the [parameter-product example](https://github.com/pantheon-rs/mercury/blob/main/examples/parameter_products.rs).
+
+## Linear solve reports
+
+The optional diagnostic call measures normwise backward error and reciprocal
+condition using infinity norms. It performs `n` extra solves with the prepared
+LU factors to compute the inverse norm; it does not form a stored inverse.
+
+```rust
+let solve = mercury::DenseSolve::new(2)?;
+let (value, report) = solve.solve_with_report(&[1.0, 0.0, 0.0, 1e-12, 1.0, 1e-12])?;
+assert_eq!(value, vec![1.0, 1.0]);
+assert!(report.backward_error < 1e-14);
+assert!((report.reciprocal_condition - 1e-12).abs() < 1e-24);
+# Ok::<(), mercury::Error>(())
+```
+
+A small backward error can accompany high sensitivity when reciprocal condition
+is small. The consumer chooses an acceptable conditioning threshold. Ordinary
+`DenseSolve` plan execution does not compute these diagnostics or apply such a
+threshold. Diagnostic arithmetic can itself overflow and returns `NonFinite`;
+no report is a certified error bound. See
+[`solve_report.rs`](https://github.com/pantheon-rs/mercury/blob/main/examples/solve_report.rs).
+
+## Compatibility in 0.5
+
+Unreachable nodes no longer execute, and Newton acceptance now also checks the
+correction. Code matching the old unit `Error::NonConvergence` must match
+`Error::NonConvergence { report }` (or `{ .. }`). Custom second-order operators
+should override `Operator::derivative_order()` to return 2; its default is 1.
+Existing function attributes retain second-order generation by default.

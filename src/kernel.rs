@@ -79,6 +79,10 @@ impl<C> Kernel<C> {
 }
 
 impl<C: Send + Sync> Operator for Kernel<C> {
+    fn derivative_order(&self) -> u8 {
+        if self.curvature.is_some() { 2 } else { 1 }
+    }
+
     fn shape(&self) -> Shape {
         self.shape
     }

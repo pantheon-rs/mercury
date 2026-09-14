@@ -312,10 +312,12 @@ fn roots_report_nonconvergence_and_singular_jacobians() {
     let operator = ImplicitSolve::new(SquareRootResidual, vec![1.0], 1e-13, 1).unwrap();
     let mut workspace = operator.workspace();
     let mut output = [0.0];
-    assert_eq!(
-        workspace.linearize(&[2.0], &mut output),
-        Err(Error::NonConvergence)
-    );
+    let Err(Error::NonConvergence { report }) = workspace.linearize(&[2.0], &mut output) else {
+        panic!("expected iteration exhaustion");
+    };
+    assert_eq!(report.iterations, 1);
+    assert!(report.residual_norm > 0.0);
+    assert!(report.correction_norm > 0.0);
     assert_eq!(
         workspace.jvp(&[2.0], &[1.0], &mut output),
         Err(Error::InvalidLinearization)
@@ -358,4 +360,187 @@ fn solve_constructors_reject_invalid_shapes_and_settings() {
         ImplicitSolve::new(SquareRootResidual, vec![f64::NAN], 1e-12, 10),
         Err(Error::NonFinite(_))
     ));
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "The kernel ABI borrows inactive configuration."
+)]
+fn scaled_root(scale: &f64, input: &[f64], output: &mut [f64]) {
+    output[0] = scale * (input[0] * input[0] - input[1]);
+}
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "The kernel ABI borrows inactive configuration."
+)]
+fn scaled_forward(scale: &f64, input: &[f64], seed: &[f64], value: &mut [f64], output: &mut [f64]) {
+    scaled_root(scale, input, value);
+    output[0] = scale * (2.0 * input[0] * seed[0] - seed[1]);
+}
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "The kernel ABI borrows inactive configuration."
+)]
+fn scaled_reverse(
+    scale: &f64,
+    input: &[f64],
+    output: &mut [f64],
+    value: &mut [f64],
+    seed: &mut [f64],
+) {
+    scaled_root(scale, input, value);
+    output[0] += scale * 2.0 * input[0] * seed[0];
+    output[1] -= scale * seed[0];
+}
+fn scaled_operator(scale: f64) -> mercury::advanced::Kernel<f64> {
+    mercury::advanced::Kernel::new(
+        scale,
+        Shape {
+            inputs: 2,
+            outputs: 1,
+        },
+        scaled_root,
+        scaled_forward,
+        scaled_reverse,
+    )
+}
+
+#[test]
+fn root_acceptance_checks_corrections_and_explicit_scales() -> Result<()> {
+    for scale in [1.0, 1e-12] {
+        for explicit in [false, true] {
+            let mut solve = ImplicitSolve::new(scaled_operator(scale), vec![1.0], 1e-8, 20)?;
+            if explicit {
+                solve = solve.with_scaling(vec![scale], vec![2.0])?;
+            }
+            let (root, report) = solve.solve_with_report(&[4.0])?;
+            close(&root, &[2.0], 1e-8);
+            assert!(report.iterations > 0);
+            assert!(report.residual_norm <= 1e-8);
+            assert!(report.correction_norm <= 1e-8);
+            let plan = Plan::from_operator(solve)?;
+            close(&plan.gradient().eval(&[4.0])?, &[0.25], 1e-8);
+        }
+    }
+    for scales in [
+        vec![],
+        vec![0.0],
+        vec![-1.0],
+        vec![f64::NAN],
+        vec![f64::INFINITY],
+    ] {
+        assert!(
+            ImplicitSolve::new(scaled_operator(1.0), vec![1.0], 1e-8, 20)?
+                .with_scaling(scales.clone(), vec![1.0])
+                .is_err()
+        );
+        assert!(
+            ImplicitSolve::new(scaled_operator(1.0), vec![1.0], 1e-8, 20)?
+                .with_scaling(vec![1.0], scales)
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn linear_reports_distinguish_conditioning_from_backward_error() -> Result<()> {
+    let solve = DenseSolve::new(2)?;
+    for diagonal in [1.0, 1e-12] {
+        let (value, report) = solve.solve_with_report(&[1.0, 0.0, 0.0, diagonal, 1.0, diagonal])?;
+        close(&value, &[1.0, 1.0], 1e-14);
+        assert!(report.backward_error <= 1e-14);
+        close(&[report.reciprocal_condition], &[diagonal], 1e-14);
+    }
+    let (_, report) = solve.solve_with_report(&[2.0, 1.0, 0.0, 3.0, 0.0, 0.0])?;
+    close(&[report.backward_error], &[0.0], 0.0);
+    // ||A||_inf = 3, ||A^-1||_inf = 2/3.
+    close(&[report.reciprocal_condition], &[0.5], 1e-14);
+    assert!(matches!(
+        solve.solve_with_report(&[0.0; 6]),
+        Err(Error::Singular)
+    ));
+    Ok(())
+}
+
+#[derive(Default)]
+struct ResidualCalls {
+    forward: AtomicUsize,
+    reverse: AtomicUsize,
+    fail: std::sync::atomic::AtomicBool,
+}
+fn wide_value(_calls: &Arc<ResidualCalls>, point: &[f64], value: &mut [f64]) {
+    value[0] = point[0] - point[1..].iter().sum::<f64>();
+}
+fn wide_forward(
+    calls: &Arc<ResidualCalls>,
+    point: &[f64],
+    seed: &[f64],
+    value: &mut [f64],
+    output: &mut [f64],
+) {
+    calls.forward.fetch_add(1, Ordering::Relaxed);
+    wide_value(calls, point, value);
+    output[0] = seed[0] - seed[1..].iter().sum::<f64>();
+}
+fn wide_reverse(
+    calls: &Arc<ResidualCalls>,
+    point: &[f64],
+    output: &mut [f64],
+    value: &mut [f64],
+    seed: &mut [f64],
+) {
+    calls.reverse.fetch_add(1, Ordering::Relaxed);
+    wide_value(calls, point, value);
+    output[0] += seed[0];
+    for entry in &mut output[1..] {
+        *entry -= seed[0];
+    }
+}
+fn wide_domain(calls: &Arc<ResidualCalls>, _point: &[f64]) -> Result<()> {
+    if calls.fail.load(Ordering::Relaxed) {
+        Err(Error::Domain("residual failure"))
+    } else {
+        Ok(())
+    }
+}
+
+#[test]
+fn implicit_parameter_products_are_directional_and_failures_invalidate() -> Result<()> {
+    let calls = Arc::new(ResidualCalls::default());
+    let residual = mercury::advanced::Kernel::new(
+        calls.clone(),
+        Shape {
+            inputs: 129,
+            outputs: 1,
+        },
+        wide_value,
+        wide_forward,
+        wide_reverse,
+    )
+    .with_domain(wide_domain);
+    let plan = Plan::from_operator(ImplicitSolve::new(residual, vec![0.0], 1e-10, 10)?)?;
+    let mut workspace = mercury::advanced::Workspace::new(&plan);
+    let point = [0.0; 128];
+    let mut linearization = plan.linearize(&point, &mut workspace)?;
+    // Only R_z is assembled, even with 128 parameters.
+    assert_eq!(calls.forward.load(Ordering::Relaxed), 1);
+    assert_eq!(calls.reverse.load(Ordering::Relaxed), 0);
+    let mut tangent = [0.0];
+    linearization.jvp(&[1.0; 128], &mut tangent)?;
+    close(&tangent, &[128.0], 0.0);
+    assert_eq!(calls.forward.load(Ordering::Relaxed), 2);
+    let mut gradient = [0.0; 128];
+    linearization.vjp(&[2.0], &mut gradient)?;
+    close(&gradient, &[2.0; 128], 0.0);
+    assert_eq!(calls.reverse.load(Ordering::Relaxed), 1);
+    calls.fail.store(true, Ordering::Relaxed);
+    assert!(linearization.vjp(&[1.0], &mut gradient).is_err());
+    assert!(gradient.iter().all(|entry| entry.is_nan()));
+    assert_eq!(linearization.value(), Err(Error::InvalidLinearization));
+    calls.fail.store(false, Ordering::Relaxed);
+    plan.linearize(&point, &mut workspace)?
+        .vjp(&[1.0], &mut gradient)?;
+    close(&gradient, &[1.0; 128], 0.0);
+    Ok(())
 }

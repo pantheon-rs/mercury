@@ -12,6 +12,9 @@ pub fn derivative_workspace(
         base: operator.workspace(),
         shape: operator.shape(),
         gradient,
+        value: vec![f64::NAN; operator.shape().outputs],
+        weights: vec![0.0; operator.shape().outputs],
+        product: vec![0.0; operator.shape().inputs],
     })
 }
 
@@ -19,6 +22,9 @@ struct DerivativeWorkspace<'a> {
     base: Box<dyn OperatorWorkspace + 'a>,
     shape: Shape,
     gradient: bool,
+    value: Vec<f64>,
+    weights: Vec<f64>,
+    product: Vec<f64>,
 }
 
 impl DerivativeWorkspace<'_> {
@@ -42,18 +48,30 @@ impl DerivativeWorkspace<'_> {
 impl OperatorWorkspace for DerivativeWorkspace<'_> {
     fn evaluate(&mut self, input: &[f64], output: &mut [f64]) -> Result<()> {
         self.check(input, output)?;
-        let mut value = vec![f64::NAN; self.shape.outputs];
-        self.base.linearize(input, &mut value)?;
-        check_finite("original function output", &value)?;
-        let mut weights = vec![0.0; self.shape.outputs];
-        for row in 0..self.shape.outputs {
-            weights.fill(0.0);
-            weights[row] = 1.0;
-            self.base.vjp(
-                input,
-                &weights,
-                &mut output[row * self.shape.inputs..(row + 1) * self.shape.inputs],
-            )?;
+        self.value.fill(f64::NAN);
+        self.base.linearize(input, &mut self.value)?;
+        check_finite("original function output", &self.value)?;
+        if self.shape.inputs < self.shape.outputs {
+            for column in 0..self.shape.inputs {
+                self.product.fill(0.0);
+                self.product[column] = 1.0;
+                self.value.fill(f64::NAN);
+                self.base.jvp(input, &self.product, &mut self.value)?;
+                check_finite("derivative column", &self.value)?;
+                for (row, value) in self.value.iter().enumerate() {
+                    output[row * self.shape.inputs + column] = *value;
+                }
+            }
+        } else {
+            for row in 0..self.shape.outputs {
+                self.weights.fill(0.0);
+                self.weights[row] = 1.0;
+                self.base.vjp(
+                    input,
+                    &self.weights,
+                    &mut output[row * self.shape.inputs..(row + 1) * self.shape.inputs],
+                )?;
+            }
         }
         check_finite("derivative output", output)
     }
@@ -62,13 +80,12 @@ impl OperatorWorkspace for DerivativeWorkspace<'_> {
         self.check(input, output)?;
         check_len("derivative seed", seed.len(), self.shape.inputs)?;
         check_finite("derivative seed", seed)?;
-        let mut weights = vec![0.0; self.shape.outputs];
         for row in 0..self.shape.outputs {
-            weights.fill(0.0);
-            weights[row] = 1.0;
+            self.weights.fill(0.0);
+            self.weights[row] = 1.0;
             self.base.curvature(
                 input,
-                &weights,
+                &self.weights,
                 seed,
                 &mut output[row * self.shape.inputs..(row + 1) * self.shape.inputs],
             )?;
@@ -85,19 +102,18 @@ impl OperatorWorkspace for DerivativeWorkspace<'_> {
         )?;
         check_finite("derivative seed", seed)?;
         output.fill(0.0);
-        let mut weights = vec![0.0; self.shape.outputs];
-        let mut product = vec![0.0; self.shape.inputs];
         for row in 0..self.shape.outputs {
-            weights.fill(0.0);
-            weights[row] = 1.0;
+            self.weights.fill(0.0);
+            self.weights[row] = 1.0;
+            self.product.fill(f64::NAN);
             // Each output Hessian is symmetric on the kernel's smooth domain.
             self.base.curvature(
                 input,
-                &weights,
+                &self.weights,
                 &seed[row * self.shape.inputs..(row + 1) * self.shape.inputs],
-                &mut product,
+                &mut self.product,
             )?;
-            for (entry, &value) in output.iter_mut().zip(&product) {
+            for (entry, &value) in output.iter_mut().zip(&self.product) {
                 *entry += value;
             }
         }

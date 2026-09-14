@@ -15,30 +15,13 @@ impl Sparsity {
                 rows[column].push(row);
             }
         }
-        let mut column_colors = vec![None; inputs];
-        let mut colors: Vec<Vec<usize>> = Vec::new();
-        for (column, entries) in rows.iter().enumerate() {
-            if entries.is_empty() {
-                continue;
-            }
-            let mut forbidden = vec![false; colors.len()];
-            for &row in entries {
-                for &neighbor in &dependencies[row] {
-                    if let Some(color) = column_colors[neighbor] {
-                        forbidden[color] = true;
-                    }
-                }
-            }
-            let color = forbidden
-                .iter()
-                .position(|&used| !used)
-                .unwrap_or(colors.len());
-            if color == colors.len() {
-                colors.push(Vec::new());
-            }
-            colors[color].push(column);
-            column_colors[column] = Some(color);
-        }
+        // A full row makes every column conflict. Avoid walking the same
+        // dense conflicts once per row and column (especially for solve inputs).
+        let colors = if dependencies.iter().any(|row| row.len() == inputs) {
+            (0..inputs).map(|column| vec![column]).collect()
+        } else {
+            color_columns(inputs, dependencies, &rows)
+        };
         let mut pointers = Vec::with_capacity(inputs + 1);
         let mut indices = Vec::new();
         pointers.push(0);
@@ -57,4 +40,36 @@ impl Sparsity {
             colors,
         }
     }
+}
+
+fn color_columns(
+    inputs: usize,
+    dependencies: &[Vec<usize>],
+    rows: &[Vec<usize>],
+) -> Vec<Vec<usize>> {
+    let mut column_colors = vec![None; inputs];
+    let mut colors: Vec<Vec<usize>> = Vec::new();
+    for (column, entries) in rows.iter().enumerate() {
+        if entries.is_empty() {
+            continue;
+        }
+        let mut forbidden = vec![false; colors.len()];
+        for &row in entries {
+            for &neighbor in &dependencies[row] {
+                if let Some(color) = column_colors[neighbor] {
+                    forbidden[color] = true;
+                }
+            }
+        }
+        let color = forbidden
+            .iter()
+            .position(|&used| !used)
+            .unwrap_or(colors.len());
+        if color == colors.len() {
+            colors.push(Vec::new());
+        }
+        colors[color].push(column);
+        column_colors[column] = Some(color);
+    }
+    colors
 }

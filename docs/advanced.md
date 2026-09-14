@@ -264,3 +264,80 @@ assert_eq!(result, [16.0]);
 overwrite every result and preserve inputs, weights and directions. Hessian
 symmetry requires a twice differentiable function on the evaluated domain.
 Custom workspaces without a curvature rule return `UnsupportedDerivative`.
+
+## Derivative capabilities
+
+`Operator::derivative_order()` declares the highest implemented order: 0 for
+values, 1 for JVP/VJP, and 2 for weighted curvature. Custom operators default to
+1; override it when providing curvature. A plan reports the minimum across its
+reachable nodes (2 for an identity/empty graph). A derivative handle subtracts
+one. This is structural metadata for preflight inspection, not a pointwise
+smoothness check or a promise that numerical evaluation will succeed.
+
+```rust
+use mercury::{DenseSolve, Plan};
+use mercury::advanced::Operator;
+let plan = Plan::from_operator(DenseSolve::new(2)?)?;
+assert_eq!(plan.derivative_order(), 2);
+assert_eq!(plan.jacobian().derivative_order(), 1);
+# Ok::<(), mercury::Error>(())
+```
+
+## Preparation and scratch ownership
+
+Building a plan validates all wiring and cycles, prunes unreachable nodes and
+assigns compact value slots. It does not call `depends_on`, propagate global
+input dependencies, or color a Jacobian. `dependencies()` prepares the conservative
+global dependency lists on first request. `jacobian().sparsity()` and Jacobian
+assembly additionally prepare CSC structure and deterministic column coloring.
+Each immutable cache is shared by cloned plan handles and initialized once;
+these calls can allocate and should run before a latency-sensitive loop if needed.
+Nested plans prepare dependency metadata when a caller requests their dependency
+contract. Ordinary value, JVP, VJP and curvature execution do not request it.
+
+A row depending on every input uses one color per column without constructing
+all pairwise conflicts. Assembly chooses uncolored reverse rows when the number
+of outputs is smaller than the forward color count; ties use colored forward
+products. Dense and sparse plan assembly use the same strategy and preserve
+structural zeros. Typed functions and derivative operators choose the smaller of
+input-column and output-row counts. No runtime timing heuristic is involved.
+
+Workspace-owned buffers retain capacity for Jacobian assembly and curvature.
+Curvature scratch grows on first use; batching and differently shaped nested
+operations can also grow buffers. Derivative and solve workspaces own their local
+scratch. Numerical errors poison public outputs and invalidate numerical caches;
+structural caches and reusable scratch capacity survive for fresh preparation.
+Operator callbacks still must overwrite all outputs and preserve points/seeds.
+
+This is not an allocation-free guarantee: Enzyme callbacks, faer factor/solve
+operations, workspace creation, first-use preparation, and returned owned results
+can allocate. The [preparation example](https://github.com/pantheon-rs/mercury/blob/main/examples/preparation.rs)
+shows explicit reuse. `scripts/bench.sh` measures plan construction, reused
+execution/products and checkpointed flight replay. Call-count regressions live
+in `tests/preparation.rs` and `tests/solve.rs`; allocator-wide totals require a
+separate profiler and are not reported by the timing harness.
+
+## Aerospace boundary
+
+Mercury differentiates explicit Euclidean coordinates. The host owns physical
+units, frames, storage layouts, manifold charts, mode selection and event history.
+Keep named physical values until a single documented packing boundary; do not
+let independent consumers invent different index orders for the same state.
+
+The [attitude example](https://github.com/pantheon-rs/mercury/blob/main/examples/attitude.rs)
+rotates body-frame force in newtons into world coordinates. It explicitly
+normalizes scalar-first quaternion storage and separately defines a three-angle
+local chart, `normalize([1, delta/2])`, about identity. Its local Jacobian is with
+respect to three perturbations in radians, not four stored quaternion entries.
+This example is a consumer fixture; Mercury does not introduce a units, frames,
+or manifold type system.
+
+The [impact example](https://github.com/pantheon-rs/mercury/blob/main/examples/impact.rs)
+uses an existing `ImplicitSolve` for a selected ground-crossing time and composes
+it with a velocity reset. The result is velocity immediately after that event,
+not a state sampled at a fixed terminal time. Differentiating event time matters:
+freezing it would lose the altitude sensitivity. The host must select and validate
+the branch (positive altitude/gravity, a suitable positive-time Newton basin,
+and a transverse crossing). Grazing, changing event order, and general event
+scheduling are outside the example's contract. A fixed-terminal-time trajectory
+would also need post-event flow and its dependence on the remaining duration.

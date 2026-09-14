@@ -380,14 +380,40 @@ fn allocation_layout_overflow_is_rejected_before_dispatch() {
     let plan = builder.build([]).unwrap();
     let mut workspace = mercury::advanced::Workspace::new(&plan);
     let mut linearization = plan.linearize(&[], &mut workspace).unwrap();
-    assert_eq!(
-        linearization.jvp_batch(usize::MAX, &[], &mut []),
-        Err(Error::SizeOverflow)
-    );
-    assert_eq!(
-        linearization.vjp_batch(usize::MAX, &[], &mut []),
-        Err(Error::SizeOverflow)
-    );
+    // The unreferenced constant is pruned: this is now an empty plan.
+    linearization.jvp_batch(usize::MAX, &[], &mut []).unwrap();
+    linearization.vjp_batch(usize::MAX, &[], &mut []).unwrap();
     assert!(linearization.value().is_ok());
     linearization.jvp_batch(2, &[], &mut []).unwrap();
+}
+
+#[test]
+fn unreachable_nodes_do_not_evaluate_or_require_derivatives() -> Result<()> {
+    let mut builder = Plan::builder(1);
+    builder.add(Fails, [Source::Input(0)]);
+    let plan = builder.build([Source::Input(0)])?;
+    assert_eq!(plan.derivative_order(), 2);
+    close(&plan.eval(&[-1.0])?, &[-1.0], 0.0);
+    close(&plan.gradient().eval(&[-1.0])?, &[1.0], 0.0);
+    close(
+        &[plan.gradient().jacobian().eval(&[-1.0])?[(0, 0)]],
+        &[0.0],
+        0.0,
+    );
+
+    // Pruning does not excuse malformed submitted wiring or hidden cycles.
+    let mut builder = Plan::builder(1);
+    builder.add(Sum, []);
+    assert!(matches!(
+        builder.build([Source::Input(0)]),
+        Err(Error::Dimension { .. })
+    ));
+    let mut builder = Plan::builder(1);
+    let node = builder.add(Fails, [Source::Input(0)]);
+    builder.connect(node, [node.output(0)])?;
+    assert!(matches!(
+        builder.build([Source::Input(0)]),
+        Err(Error::Cycle)
+    ));
+    Ok(())
 }

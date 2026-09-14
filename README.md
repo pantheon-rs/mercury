@@ -1,15 +1,14 @@
 # Mercury
 
-Differentiable Rust functions for simulation and optimization.
+[![CI](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml)
+[![Docs](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml)
+[![Coverage: not reported](https://img.shields.io/badge/coverage-not_reported-lightgrey)](docs/validation.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Mercury compiles numerical kernels with experimental Rust/Enzyme and connects
-them in immutable runtime plans. The host owns simulation state and time.
-
-- Enzyme compiles each numerical block's value, JVP, and VJP entry points.
-- Mercury propagates derivatives through shared inputs and runtime connections.
-- faer supplies factorizations behind explicit linear and implicit solve rules.
-
-Define a function, select its gradient, and evaluate:
+Differentiable Rust functions for simulation and optimization. Mercury uses
+experimental Rust/Enzyme to compile derivatives, connects functions in immutable
+runtime plans, and differentiates through linear and implicit solves backed by
+faer. Your application owns simulation state and time.
 
 ```rust
 #![feature(autodiff)]
@@ -23,74 +22,47 @@ fn rosenbrock(x: f64, y: f64) -> f64 {
 
 fn main() -> mercury::Result<()> {
     let function = Rosenbrock::new();
-    let gradient = function.gradient();
-
     let value = function.eval(-1.2, 1.0)?;
-    let [df_dx, df_dy] = gradient.eval(-1.2, 1.0)?;
-    println!("value = {value}, gradient = [{df_dx}, {df_dy}]");
+    let gradient = function.gradient().eval(-1.2, 1.0)?;
+    println!("value = {value}, gradient = {gradient:?}");
     Ok(())
 }
 ```
 
-Run it with the pinned compiler:
+Result: `24.2`, with gradient `[-215.6, -88]` in argument order.
+Run the [complete example](examples/rosenbrock.rs) with
+`./scripts/example.sh rosenbrock`.
+
+## Develop
+
+Requires Nix with flakes on `x86_64-linux`. Run these from the repository root;
+the scripts enter the pinned Rust/Enzyme environment and use release builds with
+fat LTO automatically.
 
 ```sh
-./scripts/example.sh rosenbrock
+./scripts/build.sh                 # Build the workspace and all targets
+./scripts/example.sh --list        # Discover examples
+./scripts/example.sh rosenbrock    # Run one (NAME -- ARGS... passes arguments)
+./scripts/test.sh                  # Tests, including doctests
+./scripts/ci.sh                    # Format, lint, test, docs, dependency audit
+./scripts/docs.sh                  # Generate target/doc/mercury/index.html
 ```
 
-For `f(x, y) = (1 - x)² + 100(y - x²)²`, at `(-1.2, 1)` this gives
-`f = 24.2` and `gradient = [-215.6, -88]`.
-The [complete example](examples/rosenbrock.rs) fits in one file.
+Use `./scripts/dev.sh` for an interactive shell, `./scripts/format.sh` to format,
+and `./scripts/bench.sh` for execution benchmarks. Direct Cargo builds need
+`--release` inside the dev shell.
 
-The attribute names the generated type explicitly. `gradient()` selects a
-compiled derivative; `eval` computes it at the supplied arguments. The gradient
-follows argument order. To compute both in one combined reverse call, use
-`function.value_and_gradient(x, y)?`.
+## Source and docs
 
-Functions returning `[f64; N]` expose `function.jacobian().eval(...)`, returning
-one row per output and one column per argument. All arguments are active `f64`
-values. Calls return owned values and reject nonfinite inputs and results.
-Function bodies must be deterministic and differentiable at the requested point;
-finite checks cannot establish differentiability or catch panics.
+| Path | Contents |
+| --- | --- |
+| [src/](src/) | Kernels, runtime plans, derivative products, sparse Jacobians and solves |
+| [macros/](macros/) | Function attributes and generated Enzyme adapters |
+| [examples/](examples/README.md) | Small runnable examples, from arithmetic to flight |
+| [tests/](tests/) / [benches/](benches/) | Numerical regressions and execution benchmarks |
+| [scripts/](scripts/) / [nix/](nix/) | Developer commands and pinned build environment |
 
-Continue through the [small examples](examples/README.md): arithmetic,
-elementary functions, Jacobians, composition, and solves.
-See [the function API](docs/api.md) for exact call and storage contracts.
-
-For graphs, pass the same function instance to `builder.add(function, sources)`.
-The advanced `#[mercury::advanced::differentiable(inputs = n, outputs = m)]` interface
-supports inactive configuration, runtime dimensions, and `.with_domain(validator)`.
-Put every value whose derivative you need in its input slice.
-
-Plans expose the same calculation names as typed functions and manage their own
-scratch. Use [advanced execution](docs/advanced.md) only for explicit workspaces,
-derivative products, and custom operators.
-
-Read [the architecture](docs/architecture.md) for the design. [Validation](docs/validation.md)
-records the supported toolchain, checks, and earlier compiler findings.
-
-## Development
-
-The pinned environment targets `x86_64-linux` and uses release builds with fat LTO.
-Scripts enter it automatically.
-
-```sh
-./scripts/example.sh --list
-./scripts/example.sh rosenbrock
-./scripts/ci.sh
-```
-
-Pass example arguments with `./scripts/example.sh NAME -- ARGS...`.
-For direct Cargo commands, enter `nix develop` and use `--release`.
-
-The [flight example](examples/flight.rs) composes 100 vertical-flight steps and
-evaluates the final state and its Jacobian. Checkpointed planar RK4 remains
-covered by the trajectory regression tests.
-
-Sparse Jacobians, structured array arguments, and second derivatives are supported.
-Try `scripts/example.sh sparse`, `structured`, or `hessian`. Batches use scalar
-loops; native batch acceleration, sparse solve operators, third derivatives, and
-state-triggered event sensitivities remain future work. Newton is undamped and
-requires a suitable initial guess. No allocation or performance bound is claimed.
-
-The previous implementation is retained in Git history at `58d2f49`.
+Read the [API guide](docs/api.md), [architecture](docs/architecture.md),
+[advanced execution reference](docs/advanced.md), and
+[validation and compiler limitations](docs/validation.md).
+Coverage instrumentation is deferred; see validation for the Enzyme limitation.
