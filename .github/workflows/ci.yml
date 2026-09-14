@@ -10,9 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v17
-      # Flake checks cover: formatting, clippy (-D warnings), tests, docs,
-      # package build, and building + running the examples — all on the
-      # pinned nightly+Enzyme toolchain (nix/rust-toolchain.nix).
+      # Build, lint, document, and test with the pinned Enzyme toolchain.
       - name: Flake checks
         run: nix flake check --print-build-logs
 

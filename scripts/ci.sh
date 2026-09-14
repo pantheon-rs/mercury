@@ -17,9 +17,7 @@ LOG_FILE="logs/ci_${TIMESTAMP}.log"
 
     ./scripts/format.sh --check
 
-    # clippy runs on the shared rust-with-enzyme toolchain (the cargo-clippy
-    # realpath + appended-sysroot fix lives in nix/rust-toolchain.nix).
-    cargo clippy --release --all-targets --all-features -- -D warnings
+    cargo clippy --release --workspace --all-targets --all-features --locked -- -D warnings
 
     ./scripts/test.sh
     ./scripts/docs.sh

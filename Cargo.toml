@@ -1,6 +1,6 @@
 [package]
 name = "mercury"
-version = "0.3.0"
+version = "0.5.0"
 edition = "2024"
 description = "Differentiable math substrate for pantheon-rs."
 license = "MIT"
@@ -11,8 +11,21 @@ categories = ["mathematics", "science", "simulation"]
 publish = false
 
 [dependencies]
+faer = { version = "=0.23.2", default-features = false, features = [
+  "std",
+  "linalg",
+] }
+mercury-macros = { version = "=0.1.0", path = "macros" }
+
+[workspace]
+members = ["macros"]
+resolver = "3"
 
 [dev-dependencies]
+
+[[bench]]
+name = "execution"
+harness = false
 
 [profile.release]
 lto = "fat"
@@ -21,13 +34,6 @@ codegen-units = 1
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
-# cargo-llvm-cov sets --cfg=coverage; the Enzyme test legs are gated behind
-# cfg(not(coverage)) because Enzyme cannot differentiate the atomic profile
-# counters that coverage instrumentation injects.
-unexpected_cfgs = { level = "warn", check-cfg = [
-  "cfg(coverage)",
-  "cfg(coverage_nightly)",
-] }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

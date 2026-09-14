@@ -1,87 +1,68 @@
 # Mercury
 
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://pantheon-rs.github.io/mercury/) [![CI](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml) [![Format](https://github.com/pantheon-rs/mercury/actions/workflows/format.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/format.yml) [![Docs](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml) [![Security](https://github.com/pantheon-rs/mercury/actions/workflows/security.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/security.yml) [![codecov](https://codecov.io/github/pantheon-rs/mercury/graph/badge.svg?token=GI55YCT3P5)](https://codecov.io/github/pantheon-rs/mercury)
+[![CI](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/ci.yml)
+[![Docs](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml/badge.svg)](https://github.com/pantheon-rs/mercury/actions/workflows/docs.yml)
+[![Coverage: not reported](https://img.shields.io/badge/coverage-not_reported-lightgrey)](docs/validation.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-`mercury` is the differentiable math substrate for `pantheon-rs`.
-
-The Phase 1 direction is an Enzyme-first autodiff crate for plain `f64` model
-code. This is the Metis idea reduced to the part that matters first: model code
-is written once as ordinary numeric Rust, and Mercury owns the derivative entry
-points, shadow-buffer plumbing, and validation surface.
-
-Phase 1 owns:
-
-- plain `f64` model-kernel conventions
-- Enzyme-backed dense derivative evaluators
-- finite-difference and analytic derivative checks
-- a conservative AD-safe kernel subset
-- room for sparse derivative callbacks later
-
-It does not start with a generic scalar trait, a symbolic graph engine, a solver
-stack, or a full linear algebra facade. Sparsity, graph coloring, and
-optimization-facing callbacks are designed when real problem scale demands
-them, without changing ordinary model code into a symbolic DSL.
-
-Phase 2 adds the owned core types and the first owned derivative rule:
-kernel-safe `SVector`/`SMatrix`/`Quaternion` (proven against Enzyme per
-type), host-side `Vector`/`Matrix`, and linear solve where small systems
-differentiate through `solve_fixed_unchecked` (the kernel-safe infallible
-variant; `solve_fixed` is the `Result`-returning host wrapper) while
-problem-scale systems use the LU primitive with the adjoint rule. See
-`docs/decisions/0003-differentiable-primitives-identity.md`.
-
-## Source Layout
-
-```text
-src/
-  lib.rs
-  objective.rs     # scalar_objective! macro (Enzyme reverse entry points)
-  validation.rs    # finite-difference oracles
-  core/            # SVector, SMatrix (kernel-safe) + Vector, Matrix (host-side)
-  geometry/        # Quaternion
-  linalg/          # solve_fixed, LU solve + adjoint rule (solve_vjp/solve_jvp)
-tests/             # one suite per module, three-legged test law
-examples/
-  solve_gradient.rs  # one gradient, three ways (fd / enzyme / adjoint)
-```
-
-The root crate is the Enzyme-backed Mercury library. `src/objective.rs` contains
-the initial scalar-objective API, and `tests/objective.rs` proves that API
-against Enzyme, finite differences, and analytic gradients.
-
-The first user-facing API is:
+Differentiable Rust functions for simulation and optimization. Mercury uses
+experimental Rust/Enzyme to compile derivatives, connects functions in immutable
+runtime plans, and differentiates through linear and implicit solves backed by
+faer. Your application owns simulation state and time.
 
 ```rust
-mercury::scalar_objective! {
-    pub mod rosenbrock(x) {
-        let mut acc = 0.0;
-        for i in 0..x.len() - 1 {
-            let a = x[i + 1] - x[i] * x[i];
-            let b = 1.0 - x[i];
-            acc += 100.0 * a * a + b * b;
-        }
-        acc
-    }
+#![feature(autodiff)]
+
+#[mercury::function(Rosenbrock)]
+fn rosenbrock(x: f64, y: f64) -> f64 {
+    let a = 1.0 - x;
+    let b = y - x * x;
+    a * a + 100.0 * b * b
 }
 
-let result = rosenbrock::value_and_gradient(&[0.5; 6]);
+fn main() -> mercury::Result<()> {
+    let function = Rosenbrock::new();
+    let value = function.eval(-1.2, 1.0)?;
+    let gradient = function.gradient().eval(-1.2, 1.0)?;
+    println!("value = {value}, gradient = {gradient:?}");
+    Ok(())
+}
 ```
 
-## Development
+Result: `24.2`, with gradient `[-215.6, -88]` in argument order.
+Run the [complete example](examples/rosenbrock.rs) with
+`./scripts/example.sh rosenbrock`.
 
-```text
-nix develop
-./scripts/build.sh
-./scripts/test.sh
-./scripts/ci.sh
+## Develop
+
+Requires Nix with flakes on `x86_64-linux`. Run these from the repository root;
+the scripts enter the pinned Rust/Enzyme environment and use release builds with
+fat LTO automatically.
+
+```sh
+./scripts/build.sh                 # Build the workspace and all targets
+./scripts/example.sh --list        # Discover examples
+./scripts/example.sh rosenbrock    # Run one (NAME -- ARGS... passes arguments)
+./scripts/test.sh                  # Tests, including doctests
+./scripts/ci.sh                    # Format, lint, test, docs, dependency audit
+./scripts/docs.sh                  # Generate target/doc/mercury/index.html
 ```
 
-## Documentation
+Use `./scripts/dev.sh` for an interactive shell, `./scripts/format.sh` to format,
+and `./scripts/bench.sh` for execution benchmarks. Direct Cargo builds need
+`--release` inside the dev shell.
 
-- [Architecture](docs/architecture.md)
-- [Phase 1 Enzyme-backed `f64` decision](docs/decisions/0002-phase-1-enzyme-f64-core.md)
-- [Phase 1 gradient validation implementation plan](docs/implementation-plans/phase-1-gradient-validation.md)
-- [Phase 2 differentiable primitives identity decision](docs/decisions/0003-differentiable-primitives-identity.md)
-- [Phase 2 core types + linalg implementation plan](docs/implementation-plans/phase-2-core-types-and-linalg.md)
-- [Proposed next slice: differentiable function contract](docs/implementation-plans/2026-07-10-differentiable-function-contract.md)
-- [Decisions](docs/decisions/)
+## Source and docs
+
+| Path | Contents |
+| --- | --- |
+| [src/](src/) | Kernels, runtime plans, derivative products, sparse Jacobians and solves |
+| [macros/](macros/) | Function attributes and generated Enzyme adapters |
+| [examples/](examples/README.md) | Small runnable examples, from arithmetic to flight |
+| [tests/](tests/) / [benches/](benches/) | Numerical regressions and execution benchmarks |
+| [scripts/](scripts/) / [nix/](nix/) | Developer commands and pinned build environment |
+
+Read the [API guide](docs/api.md), [architecture](docs/architecture.md),
+[advanced execution reference](docs/advanced.md), and
+[validation and compiler limitations](docs/validation.md).
+Coverage instrumentation is deferred; see validation for the Enzyme limitation.

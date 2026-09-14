@@ -1,39 +1,26 @@
-//! Differentiable math substrate for `pantheon-rs`.
-//!
-//! Every Mercury primitive is plain-`f64` Rust with a validated,
-//! Mercury-owned derivative rule (decision 0003). Enzyme differentiates
-//! user kernels; Mercury owns the rules at the joints.
-//!
-//! - [`core`]: POD-transparent types. Fixed-size (`SVector`, `SMatrix`) are
-//!   kernel-safe; dynamic (`Vector`, `Matrix`) host data outside kernels.
-//! - [`geometry`]: `Quaternion` and rotations (analytic derivatives).
-//! - [`linalg`]: kernel-safe fixed solves (`solve_fixed_unchecked`,
-//!   `solve_spd_fixed_unchecked`) and host-side factorizations (LU, LLT,
-//!   LDLT, QR) behind one [`linalg::Factorization`] adjoint rule
-//!   (`solve_vjp`/`solve_jvp`), plus a dedicated least-squares rule
-//!   (`lstsq_vjp`/`lstsq_jvp`) — never differentiate the factorization.
-//! - [`validation`]: finite-difference oracles for the three-legged test law.
-#![feature(autodiff)]
+#![doc = include_str!("../docs/api.md")]
 #![forbid(unsafe_code)]
 
-mod objective;
+mod derivative;
+mod error;
+mod kernel;
+mod operator;
+mod plan;
+mod solve;
+mod sparse;
 
-pub use objective::ValueGradient;
+pub use error::{Error, Result};
+pub use mercury_macros::function;
+pub use plan::{Gradient, Hessian, Jacobian, NodeId, Plan, PlanBuilder, Source};
+pub use solve::{DenseSolve, ImplicitSolve, LinearSolveReport, NewtonReport};
 
-pub mod core;
+pub mod advanced;
 
-pub use crate::core::{Matrix, Perm, SMatrix, SVector, Vector};
+pub(crate) use advanced::{Operator, OperatorWorkspace, PlanExecution, Shape};
 
-pub mod geometry;
-
-pub use crate::geometry::Quaternion;
-
-pub mod linalg;
-
-pub use crate::linalg::{
-    Factorization, LdltFactors, LinalgError, LltFactors, LuFactors, QrFactors, SolveGradients,
-    ldlt_factor, llt_factor, lstsq_jvp, lstsq_vjp, lu_factor, qr_factor, solve, solve_fixed,
-    solve_fixed_unchecked, solve_jvp, solve_spd_fixed_unchecked, solve_vjp,
-};
-
-pub mod validation;
+/// Support for generated code; not a user-facing API.
+#[doc(hidden)]
+pub mod __private {
+    pub use crate::derivative::derivative_workspace;
+    pub use crate::error::check_finite;
+}
